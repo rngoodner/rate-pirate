@@ -3,6 +3,7 @@ import type { Db } from '../db/db.js';
 import {
   activeDestinations,
   apiCallsToday,
+  expireDealsBeforeMonth,
   insertSnapshot,
   latestCaptureByRouteMonth,
   recordApiCall,
@@ -21,8 +22,8 @@ export interface ScanDeps {
   provider: FlightPriceProvider;
   /** Injectable clock for the simulator. */
   now?: () => Date;
-  /** Called after each successful task; Phase 3 hooks deal detection here. */
-  onQuotes?: (task: RouteMonthTask, quotes: RoundTripQuote[]) => void;
+  /** Called after each successful task; deal detection + alerting hook in here. */
+  onQuotes?: (task: RouteMonthTask, quotes: RoundTripQuote[]) => void | Promise<void>;
 }
 
 export interface ScanResult {
@@ -43,6 +44,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
   }
 
   const asOf = sqliteStamp(now());
+  expireDealsBeforeMonth(db, asOf.slice(0, 7));
   const used = apiCallsToday(db, provider.name, asOf);
   const remaining = settings.dailyCallBudget - used;
   if (remaining <= 0) {
@@ -95,7 +97,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
         });
         snapshots++;
       }
-      if (quotes.length > 0) deps.onQuotes?.(task, quotes);
+      if (quotes.length > 0) await deps.onQuotes?.(task, quotes);
     } catch (err) {
       failures++;
       console.error(`scan failed for ${task.destination} ${task.month}:`, err);

@@ -1,5 +1,16 @@
 /** API wire types shared between server and web. */
 
+/** Where-to-buy deep link — Rate Pirate never books flights itself. */
+export function googleFlightsUrl(
+  origin: string,
+  destination: string,
+  departDate: string,
+  returnDate: string,
+): string {
+  const q = `Flights from ${origin} to ${destination} on ${departDate} through ${returnDate}`;
+  return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;
+}
+
 export interface Deal {
   id: number;
   origin: string;

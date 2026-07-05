@@ -133,6 +133,167 @@ export function getDestination(db: Db, iata: string): DestinationRow | null {
   return r ? { ...r, active: r.active === 1 } : null;
 }
 
+/** Snapshots from the most recent scan of a route-month (all share captured_at). */
+export function latestScanSnapshots(
+  db: Db,
+  origin: string,
+  destination: string,
+  travelMonth: string,
+  asOf?: string,
+): SnapshotRow[] {
+  return db
+    .prepare(
+      `SELECT ${snapshotCols} FROM price_snapshots
+       WHERE origin = ? AND destination = ? AND travel_month = ?
+         AND captured_at = (
+           SELECT MAX(captured_at) FROM price_snapshots
+           WHERE origin = ? AND destination = ? AND travel_month = ?
+             AND captured_at <= COALESCE(?, datetime('now'))
+         )
+       ORDER BY price_cents`,
+    )
+    .all(
+      origin,
+      destination,
+      travelMonth,
+      origin,
+      destination,
+      travelMonth,
+      asOf ?? null,
+    ) as SnapshotRow[];
+}
+
+// --- deals ---
+
+export interface DealRow {
+  id: number;
+  origin: string;
+  destination: string;
+  travelMonth: string;
+  bestPriceCents: number;
+  baselinePriceCents: number;
+  discountPct: number;
+  score: number;
+  departDate: string;
+  returnDate: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  status: 'active' | 'expired';
+}
+
+const dealCols = `id, origin, destination, travel_month AS travelMonth,
+  best_price_cents AS bestPriceCents, baseline_price_cents AS baselinePriceCents,
+  discount_pct AS discountPct, score, depart_date AS departDate, return_date AS returnDate,
+  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status`;
+
+export interface DealInput {
+  origin: string;
+  destination: string;
+  travelMonth: string;
+  bestPriceCents: number;
+  baselinePriceCents: number;
+  discountPct: number;
+  score: number;
+  departDate: string;
+  returnDate: string;
+  seenAt: string;
+}
+
+export function upsertDeal(db: Db, d: DealInput): DealRow {
+  db.prepare(
+    `INSERT INTO deals (origin, destination, travel_month, best_price_cents, baseline_price_cents,
+       discount_pct, score, depart_date, return_date, first_seen_at, last_seen_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+     ON CONFLICT(origin, destination, travel_month) DO UPDATE SET
+       best_price_cents = excluded.best_price_cents,
+       baseline_price_cents = excluded.baseline_price_cents,
+       discount_pct = excluded.discount_pct,
+       score = excluded.score,
+       depart_date = excluded.depart_date,
+       return_date = excluded.return_date,
+       last_seen_at = excluded.last_seen_at,
+       status = 'active'`,
+  ).run(
+    d.origin,
+    d.destination,
+    d.travelMonth,
+    d.bestPriceCents,
+    d.baselinePriceCents,
+    d.discountPct,
+    d.score,
+    d.departDate,
+    d.returnDate,
+    d.seenAt,
+    d.seenAt,
+  );
+  return getDealByRouteMonth(db, d.origin, d.destination, d.travelMonth)!;
+}
+
+export function getDealByRouteMonth(
+  db: Db,
+  origin: string,
+  destination: string,
+  travelMonth: string,
+): DealRow | null {
+  return (
+    (db
+      .prepare(
+        `SELECT ${dealCols} FROM deals WHERE origin = ? AND destination = ? AND travel_month = ?`,
+      )
+      .get(origin, destination, travelMonth) as DealRow | undefined) ?? null
+  );
+}
+
+export function getDeal(db: Db, id: number): DealRow | null {
+  return (
+    (db.prepare(`SELECT ${dealCols} FROM deals WHERE id = ?`).get(id) as DealRow | undefined) ??
+    null
+  );
+}
+
+export function activeDeals(db: Db): DealRow[] {
+  return db
+    .prepare(`SELECT ${dealCols} FROM deals WHERE status = 'active' ORDER BY score DESC, discount_pct DESC`)
+    .all() as DealRow[];
+}
+
+export function expireDeal(db: Db, id: number): void {
+  db.prepare(`UPDATE deals SET status = 'expired' WHERE id = ?`).run(id);
+}
+
+/** Expire deals whose travel month has passed. */
+export function expireDealsBeforeMonth(db: Db, month: string): number {
+  return db
+    .prepare(`UPDATE deals SET status = 'expired' WHERE status = 'active' AND travel_month < ?`)
+    .run(month).changes;
+}
+
+// --- alerts ---
+
+export function recordAlert(
+  db: Db,
+  a: { dealId: number; sentTo: string; priceCents: number; score: number; sentAt?: string },
+): void {
+  db.prepare(
+    `INSERT INTO alerts (deal_id, sent_to, price_cents, score, sent_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+  ).run(a.dealId, a.sentTo, a.priceCents, a.score, a.sentAt ?? null);
+}
+
+export function lastAlertForDeal(
+  db: Db,
+  dealId: number,
+): { sentAt: string; priceCents: number } | null {
+  return (
+    (db
+      .prepare(
+        `SELECT sent_at AS sentAt, price_cents AS priceCents FROM alerts
+         WHERE deal_id = ? ORDER BY sent_at DESC LIMIT 1`,
+      )
+      .get(dealId) as { sentAt: string; priceCents: number } | undefined) ?? null
+  );
+}
+
 // --- api call accounting ---
 
 export interface ApiCallInput {

@@ -152,14 +152,14 @@ interface FlightPriceProvider {
 
 ## 6. Deal detection, scoring, alerting
 
-**Baseline** per (origin, destination, travel_month):
-1. Median of route+month snapshots over last 60 days, if ≥8 snapshots spanning ≥10 distinct days.
-2. Fallback: median across all months for the route over 90 days, if ≥15 snapshots spanning ≥14 days.
+**Baseline** per (origin, destination, travel_month) — computed over **daily-cheapest** prices (min per capture day), never raw snapshots: each scan stores several date-pair quotes and the "current price" is the cheapest of the latest scan, so a median over all quotes would sit structurally above any day's cheapest and make every route look ~10% discounted forever (bug found via the seed simulator):
+1. Median of the month's daily minima over last 60 days, if ≥10 capture days.
+2. Fallback: median of the whole route's daily minima over 90 days, if ≥14 capture days.
 3. Otherwise **cold start**: collect only — no deal, no alert. UI shows "building price history" banner with coverage %.
 
 **Score** (pure function):
 ```
-percentile  = fraction of 90-day route history strictly more expensive than current price
+percentile  = fraction of the route's 90-day daily minima strictly more expensive than current price
 discountPct = (baseline - current) / baseline
 score       = round(100 · (0.6·percentile + 0.4·clamp(discountPct / 0.40, 0, 1)))
 ```
