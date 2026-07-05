@@ -13,7 +13,8 @@ export function getSettings(db: Db, config: Config): Settings {
     homeAirport: stored.get('home_airport') ?? 'ABQ',
     alertEmail: stored.get('alert_email') ?? config.ALERT_EMAIL_TO ?? '',
     alertThreshold: intOr(stored.get('alert_threshold'), 85),
-    dailyCallBudget: intOr(stored.get('daily_call_budget'), 500),
+    // Modest default: with google-flights each call is a headless page load
+    dailyCallBudget: intOr(stored.get('daily_call_budget'), 100),
     scanEnabled: (stored.get('scan_enabled') ?? 'true') === 'true',
   };
 }

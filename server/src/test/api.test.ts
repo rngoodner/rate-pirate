@@ -109,7 +109,7 @@ describe('API routes', () => {
     const res = await app.request('/api/status');
     const status = (await res.json()) as ScanStatus;
     expect(status.provider).toBe('mock');
-    expect(status.dailyCallBudget).toBe(500);
+    expect(status.dailyCallBudget).toBe(100);
     expect(status.callsToday).toBe(0);
     expect(status.baselineCoverage).toBe(0);
     expect(status.activeDeals).toBe(0);

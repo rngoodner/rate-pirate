@@ -13,7 +13,7 @@ describe('settings', () => {
       homeAirport: 'ABQ',
       alertEmail: 'env@example.com',
       alertThreshold: 85,
-      dailyCallBudget: 500,
+      dailyCallBudget: 100,
       scanEnabled: true,
     });
   });
@@ -31,7 +31,7 @@ describe('settings', () => {
     expect(s.alertEmail).toBe('me@example.com');
     expect(s.alertThreshold).toBe(90);
     expect(s.scanEnabled).toBe(false);
-    expect(s.dailyCallBudget).toBe(500); // untouched key keeps default
+    expect(s.dailyCallBudget).toBe(100); // untouched key keeps default
   });
 
   it('partial update leaves other keys alone', () => {

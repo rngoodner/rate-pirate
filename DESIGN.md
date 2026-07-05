@@ -13,7 +13,7 @@ Rate Pirate is a single-user, mobile-first web app that monitors round-trip flig
 | Concern | Decision |
 |---|---|
 | Language | TypeScript everywhere |
-| Flight data | Travelpayouts/Aviasales Data API (free; token via env). Amadeus was the original pick but its self-service portal is decommissioned 2026-07-17, so it is not viable. |
+| Flight data | **Google Flights via headless Chrome** (free, real-time, full ABQ coverage). Amadeus was the original pick but its self-service portal is decommissioned 2026-07-17. Travelpayouts was the first replacement, but a measured coverage probe found ~2% of ABQ route-months in its cache (vs 67% for LAX) — its client remains as an optional fallback. |
 | Email | Resend |
 | Users | Single user, no auth; settings editable in UI |
 | Booking | None — link out to Google Flights |
@@ -25,7 +25,7 @@ Rate Pirate is a single-user, mobile-first web app that monitors round-trip flig
 
 One Node process: **Hono** serves the JSON API and the built static frontend on port **3789**; **better-sqlite3** for storage (single DB file); **node-cron** drives the scanner; frontend is **React + Vite + Tailwind**, PWA-lite (manifest + icons, no service worker in v1). npm workspaces: `shared/` (wire types), `server/`, `web/`, plus `deploy/`.
 
-**Data-source note:** The scanner is built on the **Travelpayouts/Aviasales Data API** (`GET https://api.travelpayouts.com/aviasales/v3/prices_for_dates` and the grouped/calendar variants), authenticated with an `X-Access-Token` header. One call returns the cheapest cached tickets for a route+month (price, dates, airline, transfers), sourced from recent real Aviasales user searches (~48h cache). Prices are indicative — acceptable, since deal detection compares against our own accumulated history and booking happens externally. The provider sits behind a swappable interface with a mock implementation so development and tests never depend on the network.
+**Data-source note:** The primary provider (`providers/google-flights.ts`) drives **headless Chrome (puppeteer-core)** to a Google Flights results page — one page load per route-month, using a representative date pair (2nd Saturday, 7 nights) — and reads prices/stops/carrier from the results' **aria-labels** (`"From 885 US dollars round trip total. 1 stop flight with Delta. …"`), the most stable surface Google exposes since screen readers depend on it. Politeness: 4–7s jittered gaps between loads, modest daily budget (default 100), browser closed after 3 idle minutes. Google's transient "Oops, something went wrong" page is detected and retried once. Chrome/Chromium path auto-detected (macOS app / Debian `apt install chromium`), overridable via `CHROME_PATH`. The provider sits behind a swappable interface with a mock implementation so development and tests never depend on the network; `providers/travelpayouts.ts` remains as an optional fallback (`PROVIDER=travelpayouts`).
 
 ### Repository layout
 
@@ -146,7 +146,7 @@ interface FlightPriceProvider {
 
 - **Unit of work = route-month.** One API call returns the cheapest cached round-trip quotes (several date pairs) for a destination + departure month. Horizon: months +1..+6 → ~80 destinations × 6 = ~480 route-months. Each returned quote becomes a snapshot; the cheapest drives deal detection.
 - **Catalog**: ~80 destinations in `destinations.ts`, seeded on first migration. Tier 1 (~20) favorites (CUN, HNL, LHR, CDG, NRT, FCO, BCN, MEX...), Tier 2 (~40) broad coverage (NAP, IST, ATH, LIS, KEF, BKK...), Tier 3 (~20) long-tail (HYD, FAI, AKL, CPT...). Editable/toggleable in DB.
-- **Budget**: Travelpayouts has no hard monthly quota, only per-endpoint rate limits (hundreds of RPM), so the full 480-combo universe can be scanned daily. `daily_call_budget` setting (default **500**) still exists as a politeness cap and kill-switch lever.
+- **Budget**: each call is a headless page load against Google, so the budget is a politeness cap: `daily_call_budget` setting, default **100** (4 batches of 25, each batch ~3 min with jittered gaps). Full ~560-combo universe cycles in ~6 days via the tier rotation; raise the budget if that proves too slow.
 - **Rotation** (`planner.ts`): priority = hours-since-last-snapshot × tier weight (T1×3, T2×1.5, T3×1) × near-month boost (+1..+3 higher). Each batch takes the top-N stalest within remaining budget — under the default budget everything gets scanned daily; the rotation only matters if the budget is lowered.
 - **Schedule** (`scheduler.ts`): node-cron, 4 batches/day (06:10, 11:10, 17:10, 22:10 America/Denver) of budget/4 each; startup catch-up if >12h idle; `scan_enabled` kill switch. `quota.ts` counts `api_calls` and refuses batches that would exceed the daily cap.
 
@@ -199,7 +199,7 @@ Three screens, styled after `ui-samples/`:
 
 ## 9. Deployment
 
-- **systemd** `deploy/rate-pirate.service`: `WorkingDirectory=/opt/rate-pirate`, `EnvironmentFile=.env`, `ExecStart=node server/dist/index.js`, `Restart=always`. Pin Node 22 LTS (NodeSource).
+- **systemd** `deploy/rate-pirate.service`: `WorkingDirectory=/opt/rate-pirate`, `EnvironmentFile=.env`, runs the server via tsx, `Restart=always`. Host needs Node 22 LTS (NodeSource) and `apt install chromium` for the google-flights provider.
 - **nginx** server block on a free port (e.g. 8081) → `proxy_pass http://127.0.0.1:3789`.
 - **deploy.sh**: build web+server locally → rsync `server/dist`, `web/dist`, package manifests, migrations to `your-server.local:/opt/rate-pirate` → `npm ci --omit=dev` on the server (native better-sqlite3 builds on matching arch) → `systemctl restart rate-pirate`.
 - DB at `/opt/rate-pirate/data/rate-pirate.db`; nightly `sqlite3 .backup` cron on the host.
@@ -221,8 +221,8 @@ Three screens, styled after `ui-samples/`:
 
 ## 11. Risks & open items
 
-1. **ABQ coverage in the Aviasales cache may be thin** — quotes come from recent real user searches, and ABQ-origin international routes may not be searched often. Phase 1's live smoke measures this. Mitigations if sparse: routes still accumulate history over days (the scanner runs daily, and the cache holds 7 days of searches); if a route stays empty for weeks, it simply never produces deals — acceptable degradation, and tier-3 routes can be deactivated.
-2. **Travelpayouts API longevity** — the same fate as Amadeus self-service is possible (this project already survived one provider death before writing a line of provider code). The `FlightPriceProvider` seam keeps the blast radius to one file.
+1. **Google Flights scraping fragility** — Google can change page internals or challenge automated traffic. Mitigations: aria-labels are the most change-resistant surface; volume is tiny (~100 loads/day, jittered); transient-error retry built in; failures surface in `api_calls` and `/api/status`. If it ever breaks hard, the `FlightPriceProvider` seam keeps the blast radius to one file (this project has already survived two provider deaths: Amadeus decommissioned its self-service portal mid-build, and Travelpayouts turned out to have ~2% ABQ coverage).
+2. **One date pair per route-month** — the representative-dates heuristic (2nd Saturday, 7 nights) samples one itinerary shape; deals tied to other patterns (mid-week, long stays) go unseen. Acceptable v1 trade-off; the date-grid view (~49 pairs per page load) is the natural upgrade if wanted.
 3. **Resend sender identity** — without a verified domain, Resend sends only from `onboarding@resend.dev` to the account owner's address. Fine for self-alerts; verify proton.me deliverability in Phase 3, else verify a domain.
 4. **Indicative prices** — cached quotes can differ from live checkout prices; the Google Flights link is the source of truth for purchase. Noted in the email footer.
 5. **Cold start** — first ~2 weeks are collect-only per route; StatusBanner and `/api/status` coverage % keep this legible.
