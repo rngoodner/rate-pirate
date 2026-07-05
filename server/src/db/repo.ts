@@ -141,21 +141,26 @@ export interface ApiCallInput {
   route?: string;
   status?: number;
   ok: boolean;
+  /** ISO timestamp override for the simulator; defaults to now. */
+  calledAt?: string;
 }
 
 export function recordApiCall(db: Db, c: ApiCallInput): void {
   db.prepare(
-    'INSERT INTO api_calls (provider, endpoint, route, status, ok) VALUES (?, ?, ?, ?, ?)',
-  ).run(c.provider, c.endpoint, c.route ?? null, c.status ?? null, c.ok ? 1 : 0);
+    `INSERT INTO api_calls (provider, endpoint, route, status, ok, called_at)
+     VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+  ).run(c.provider, c.endpoint, c.route ?? null, c.status ?? null, c.ok ? 1 : 0, c.calledAt ?? null);
 }
 
-/** Calls made since local midnight UTC-agnostic: uses SQLite's date('now'). */
-export function apiCallsToday(db: Db, provider: string): number {
+/** Calls made on the (virtual) current day; day boundary from SQLite's date(). */
+export function apiCallsToday(db: Db, provider: string, asOf?: string): number {
   const row = db
     .prepare(
-      `SELECT COUNT(*) AS n FROM api_calls WHERE provider = ? AND called_at >= date('now')`,
+      `SELECT COUNT(*) AS n FROM api_calls
+       WHERE provider = ? AND called_at >= date(COALESCE(?, 'now'))
+         AND called_at <= COALESCE(?, datetime('now'))`,
     )
-    .get(provider) as { n: number };
+    .get(provider, asOf ?? null, asOf ?? null) as { n: number };
   return row.n;
 }
 
