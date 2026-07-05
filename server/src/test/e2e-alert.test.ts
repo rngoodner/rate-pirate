@@ -34,7 +34,7 @@ describe('alert pipeline simulation', () => {
         sent.push({ day: currentDay, msg });
       },
     };
-    const deps = { db, config, provider, now, onQuotes: createOnQuotes(db, config, sender, now) };
+    const deps = { db, config, provider, now, onQuotes: createOnQuotes(db, config, sender, 'mock', now) };
 
     const dropMonth = horizonMonths(new Date(START), 6)[1]!; // stable across the run
     const monthLabel = new Date(`${dropMonth}-15T00:00:00Z`).toLocaleDateString('en-US', {

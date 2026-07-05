@@ -18,16 +18,17 @@ const DEAL_MIN_DISCOUNT = 0.05;
  *  Returns the active deal when one exists (created or refreshed), else null. */
 export function processRouteMonth(
   db: Db,
-  route: { origin: string; destination: string; month: string },
+  route: { source: string; origin: string; destination: string; month: string },
   asOf: string,
 ): DealRow | null {
-  const { origin, destination, month } = route;
-  const current = latestScanSnapshots(db, origin, destination, month, asOf)[0];
-  const existing = getDealByRouteMonth(db, origin, destination, month);
+  const { source, origin, destination, month } = route;
+  const current = latestScanSnapshots(db, source, origin, destination, month, asOf)[0];
+  const existing = getDealByRouteMonth(db, source, origin, destination, month);
   if (!current) return null;
 
   const monthHistory = snapshotsForRouteMonth(
     db,
+    source,
     origin,
     destination,
     month,
@@ -36,6 +37,7 @@ export function processRouteMonth(
   );
   const routeHistory = snapshotsForRoute(
     db,
+    source,
     origin,
     destination,
     BASELINE_WINDOWS.ROUTE_WINDOW_DAYS,
@@ -54,6 +56,7 @@ export function processRouteMonth(
 
   if (discountPct > DEAL_MIN_DISCOUNT) {
     return upsertDeal(db, {
+      source,
       origin,
       destination,
       travelMonth: month,

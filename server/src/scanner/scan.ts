@@ -54,7 +54,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
   const limit = Math.min(remaining, batchLimit ?? Math.ceil(settings.dailyCallBudget / 4));
   const tasks = planBatch({
     destinations: activeDestinations(db),
-    latestCapture: latestCaptureByRouteMonth(db, settings.homeAirport),
+    latestCapture: latestCaptureByRouteMonth(db, provider.name, settings.homeAirport),
     now: now(),
     horizon: HORIZON_MONTHS,
     limit,

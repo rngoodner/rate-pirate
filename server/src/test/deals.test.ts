@@ -95,7 +95,7 @@ describe('scoreDeal', () => {
 });
 
 describe('processRouteMonth', () => {
-  const route = { origin: 'ABQ', destination: 'NAP', month: '2026-08' };
+  const route = { source: 'mock', origin: 'ABQ', destination: 'NAP', month: '2026-08' };
 
   function seedHistory(db: ReturnType<typeof openDb>, priceCents: number, days = 12) {
     for (let day = 1; day <= days; day++) {
@@ -143,7 +143,7 @@ describe('processRouteMonth', () => {
     const db = openDb(':memory:');
     seedHistory(db, 100000, 3); // too few days
     expect(processRouteMonth(db, route, '2026-06-04 12:00:00')).toBeNull();
-    expect(getDealByRouteMonth(db, 'ABQ', 'NAP', '2026-08')).toBeNull();
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', '2026-08')).toBeNull();
   });
 
   it('expires the deal when the price recovers', () => {
@@ -177,7 +177,7 @@ describe('processRouteMonth', () => {
       capturedAt: '2026-06-21 08:00:00',
     });
     expect(processRouteMonth(db, route, '2026-06-21 08:00:00')).toBeNull();
-    expect(getDealByRouteMonth(db, 'ABQ', 'NAP', '2026-08')!.status).toBe('expired');
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', '2026-08')!.status).toBe('expired');
   });
 
   it('refreshes an existing deal in place (same route-month stays one row)', () => {
@@ -201,7 +201,7 @@ describe('processRouteMonth', () => {
       });
       processRouteMonth(db, route, `2026-06-${day} 08:00:00`);
     }
-    const deal = getDealByRouteMonth(db, 'ABQ', 'NAP', '2026-08')!;
+    const deal = getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', '2026-08')!;
     expect(deal.bestPriceCents).toBe(62000);
     expect(deal.firstSeenAt).toBe('2026-06-20 08:00:00');
     expect(deal.lastSeenAt).toBe('2026-06-21 08:00:00');

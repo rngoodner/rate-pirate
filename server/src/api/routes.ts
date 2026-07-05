@@ -59,7 +59,7 @@ export function apiRoutes(deps: AppDeps): Hono {
   api.get('/health', (c) => c.json({ ok: true }));
 
   api.get('/deals', (c) => {
-    const deals: Deal[] = activeDealsWithPlace(db).map(toWireDeal);
+    const deals: Deal[] = activeDealsWithPlace(db, deps.provider.name).map(toWireDeal);
     return c.json(deals);
   });
 
@@ -69,7 +69,7 @@ export function apiRoutes(deps: AppDeps): Hono {
     const deal = getDealWithPlace(db, id);
     if (!deal) return c.json({ error: 'deal not found' }, 404);
 
-    const options = recentDateOptions(db, deal.origin, deal.destination, 7, 20);
+    const options = recentDateOptions(db, deal.source, deal.origin, deal.destination, 7, 20);
     const detail: DealDetail = {
       ...toWireDeal(deal),
       dateOptions: options.map((o) => ({
@@ -102,8 +102,11 @@ export function apiRoutes(deps: AppDeps): Hono {
       lastScanAt: lastApiCallAt(db, deps.provider.name),
       callsToday: apiCallsToday(db, deps.provider.name),
       dailyCallBudget: settings.dailyCallBudget,
-      baselineCoverage: universe === 0 ? 0 : routeMonthsWithBaseline(db, settings.homeAirport) / universe,
-      activeDeals: activeDealsWithPlace(db).length,
+      baselineCoverage:
+        universe === 0
+          ? 0
+          : routeMonthsWithBaseline(db, deps.provider.name, settings.homeAirport) / universe,
+      activeDeals: activeDealsWithPlace(db, deps.provider.name).length,
     };
     return c.json(status);
   });

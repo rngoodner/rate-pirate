@@ -12,6 +12,7 @@ export function createOnQuotes(
   db: Db,
   config: Config,
   sender: EmailSender,
+  source: string,
   now: () => Date = () => new Date(),
 ): NonNullable<ScanDeps['onQuotes']> {
   return async (task) => {
@@ -19,7 +20,7 @@ export function createOnQuotes(
     const asOf = sqliteStamp(now());
     const deal = processRouteMonth(
       db,
-      { origin: settings.homeAirport, destination: task.destination, month: task.month },
+      { source, origin: settings.homeAirport, destination: task.destination, month: task.month },
       asOf,
     );
     if (deal) await maybeAlert(db, deal, settings, sender, asOf);

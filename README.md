@@ -78,6 +78,20 @@ Two layers:
 - **Settings UI / API** — home airport, alert email, alert threshold, daily call
   budget, scan on/off. Stored in the database; no restart needed.
 
+### Demo mode (mock data)
+
+To show the app with a fully populated feed (e.g. before enough live history has
+accumulated), set `PROVIDER=mock` in `.env` and restart the service. On boot the
+app auto-seeds 14 days of synthetic price history and deals — the UI is populated
+immediately. Live data keeps its own lane: it is neither shown nor touched while
+in demo mode.
+
+To go (back) live, set `PROVIDER=google-flights` and restart — all mock data is
+purged automatically on boot and only real history is shown. Mock and live data
+never mix, so flipping between them is always safe. One caveat: scans only run
+for the active provider, so days spent in demo mode leave a gap in live price
+history.
+
 ### Database
 
 SQLite at `/opt/rate-pirate/data/rate-pirate.db`.

@@ -29,6 +29,7 @@ function makeDeal(
   overrides: Partial<Parameters<typeof upsertDeal>[1]> = {},
 ): DealRow {
   return upsertDeal(db, {
+    source: 'mock',
     origin: 'ABQ',
     destination: 'NAP',
     travelMonth: '2026-08',

@@ -2,12 +2,14 @@ import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { openDb } from './db/db.js';
-import { seedDestinations } from './db/repo.js';
+import { purgeMockData, seedDestinations } from './db/repo.js';
+import { getSettings } from './db/settings.js';
 import { DESTINATION_CATALOG } from './scanner/destinations.js';
 import { startScheduler } from './scanner/scheduler.js';
 import { createProvider } from './providers/index.js';
 import { createEmailSender } from './alerts/email.js';
 import { createOnQuotes } from './pipeline.js';
+import { needsDemoSeed, seedDemoHistory } from './demo/seed.js';
 import type { AppDeps } from './app.js';
 
 const config = loadConfig();
@@ -16,12 +18,28 @@ seedDestinations(db, DESTINATION_CATALOG);
 const provider = createProvider(config, db);
 const sender = createEmailSender(config);
 
+// Demo mode is self-contained: entering it seeds synthetic history so the UI
+// has data immediately; leaving it purges every mock artifact so live data
+// starts clean. Real history is never touched by either step.
+if (provider.name === 'mock') {
+  if (needsDemoSeed(db)) {
+    console.log('demo mode: seeding 14 days of synthetic price history…');
+    const { snapshots, days } = await seedDemoHistory(db, {
+      homeAirport: getSettings(db, config).homeAirport,
+    });
+    console.log(`demo mode: seeded ${snapshots} snapshots over ${days} virtual days`);
+  }
+} else {
+  const removed = purgeMockData(db);
+  if (removed > 0) console.log(`live mode: purged ${removed} mock rows (demo data)`);
+}
+
 const deps: AppDeps = {
   db,
   config,
   provider,
   sender,
-  onQuotes: createOnQuotes(db, config, sender),
+  onQuotes: createOnQuotes(db, config, sender, provider.name),
 };
 startScheduler(deps);
 

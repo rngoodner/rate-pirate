@@ -18,6 +18,7 @@ function makeApp() {
 
 function seedDeal(db: ReturnType<typeof openDb>, destination: string, score: number) {
   return upsertDeal(db, {
+    source: 'mock',
     origin: 'ABQ',
     destination,
     travelMonth: '2099-08',

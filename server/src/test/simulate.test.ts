@@ -52,7 +52,7 @@ describe('30-day scan simulation', () => {
       expect(sim.callsOnDay(day)).toBeLessThanOrEqual(budget);
       expect(sim.callsOnDay(day)).toBe(universe); // nothing more to scan than the universe
     }
-    const latest = latestCaptureByRouteMonth(sim.db, 'ABQ');
+    const latest = latestCaptureByRouteMonth(sim.db, 'mock', 'ABQ');
     expect(latest.size).toBe(universe);
   }, 30_000);
 
@@ -64,7 +64,7 @@ describe('30-day scan simulation', () => {
       expect(sim.callsOnDay(day)).toBeLessThanOrEqual(60);
     }
 
-    const latest = latestCaptureByRouteMonth(sim.db, 'ABQ');
+    const latest = latestCaptureByRouteMonth(sim.db, 'mock', 'ABQ');
     const months = horizonMonths(new Date(START + 29 * DAY), 6);
     // Near-horizon months of every tier-1 favorite stay fresh (≤ ~3 days stale at the end)
     const endOfRun = START + 30 * DAY;
