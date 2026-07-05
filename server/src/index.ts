@@ -23,6 +23,7 @@ const sender = createEmailSender(config);
 // starts clean. Real history is never touched by either step.
 if (provider.name === 'mock') {
   if (needsDemoSeed(db)) {
+    purgeMockData(db); // clear partial/stale demo leftovers before reseeding
     console.log('demo mode: seeding 14 days of synthetic price history…');
     const { snapshots, days } = await seedDemoHistory(db, {
       homeAirport: getSettings(db, config).homeAirport,

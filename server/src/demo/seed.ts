@@ -15,6 +15,23 @@ export async function seedDemoHistory(
   db: Db,
   opts: { days?: number; homeAirport?: string; log?: (line: string) => void } = {},
 ): Promise<{ snapshots: number; days: number }> {
+  // One big transaction: this runs at boot before anything else touches the DB,
+  // and per-row commits make ~40k inserts crawl on spinning disks.
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = await seedDays(db, opts);
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+async function seedDays(
+  db: Db,
+  opts: { days?: number; homeAirport?: string; log?: (line: string) => void },
+): Promise<{ snapshots: number; days: number }> {
   const days = opts.days ?? 14;
   const origin = opts.homeAirport ?? 'ABQ';
   const destinations = activeDestinations(db);
@@ -56,10 +73,15 @@ export async function seedDemoHistory(
   return { snapshots, days };
 }
 
-/** True when no mock history exists yet (fresh DB or after a purge). */
+/** True when the existing mock history can't support baselines — fresh DB,
+ *  leftover partial data, or a seed old enough to have aged out of the 60-day
+ *  baseline window. Callers should purge mock data before reseeding. */
 export function needsDemoSeed(db: Db): boolean {
   const row = db
-    .prepare(`SELECT COUNT(*) AS n FROM price_snapshots WHERE source = 'mock'`)
+    .prepare(
+      `SELECT COUNT(DISTINCT date(captured_at)) AS n FROM price_snapshots
+       WHERE source = 'mock' AND captured_at >= datetime('now', '-60 days')`,
+    )
     .get() as { n: number };
-  return row.n === 0;
+  return row.n < 10;
 }
