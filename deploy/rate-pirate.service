@@ -1,0 +1,19 @@
+# systemd unit for Rate Pirate — install on your-server.local:
+#   sudo cp deploy/rate-pirate.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rate-pirate
+[Unit]
+Description=Rate Pirate flight deal monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ryan
+WorkingDirectory=/opt/rate-pirate
+EnvironmentFile=/opt/rate-pirate/.env
+ExecStart=/usr/bin/npm -w server run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
