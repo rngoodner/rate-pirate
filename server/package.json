@@ -1,0 +1,28 @@
+{
+  "name": "@rate-pirate/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.0",
+    "@rate-pirate/shared": "*",
+    "better-sqlite3": "^12.2.0",
+    "dotenv": "^17.0.0",
+    "hono": "^4.8.0",
+    "node-cron": "^4.1.0",
+    "resend": "^4.6.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "vitest": "^3.2.0"
+  }
+}

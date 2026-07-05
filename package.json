@@ -1,0 +1,30 @@
+{
+  "name": "rate-pirate",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm -w server run dev\" \"npm -w web run dev\"",
+    "build": "npm -w web run build",
+    "start": "npm -w server run start",
+    "test": "npm -w server run test",
+    "typecheck": "npm -w server run typecheck && npm -w web run typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.30.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.35.0"
+  }
+}
