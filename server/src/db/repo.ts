@@ -268,6 +268,88 @@ export function expireDealsBeforeMonth(db: Db, month: string): number {
     .run(month).changes;
 }
 
+export interface DealWithPlace extends DealRow {
+  city: string;
+  country: string;
+}
+
+const dealPlaceCols = `d.id, d.origin, d.destination, d.travel_month AS travelMonth,
+  d.best_price_cents AS bestPriceCents, d.baseline_price_cents AS baselinePriceCents,
+  d.discount_pct AS discountPct, d.score, d.depart_date AS departDate,
+  d.return_date AS returnDate, d.first_seen_at AS firstSeenAt,
+  d.last_seen_at AS lastSeenAt, d.status`;
+
+export function activeDealsWithPlace(db: Db): DealWithPlace[] {
+  return db
+    .prepare(
+      `SELECT ${dealPlaceCols}, COALESCE(dest.city, d.destination) AS city,
+              COALESCE(dest.country, '') AS country
+       FROM deals d LEFT JOIN destinations dest ON dest.iata = d.destination
+       WHERE d.status = 'active'
+       ORDER BY d.score DESC, d.discount_pct DESC`,
+    )
+    .all() as DealWithPlace[];
+}
+
+export function getDealWithPlace(db: Db, id: number): DealWithPlace | null {
+  return (
+    (db
+      .prepare(
+        `SELECT ${dealPlaceCols}, COALESCE(dest.city, d.destination) AS city,
+                COALESCE(dest.country, '') AS country
+         FROM deals d LEFT JOIN destinations dest ON dest.iata = d.destination
+         WHERE d.id = ?`,
+      )
+      .get(id) as DealWithPlace | undefined) ?? null
+  );
+}
+
+/** Most recent price per distinct date pair on a route, cheapest first. */
+export function recentDateOptions(
+  db: Db,
+  origin: string,
+  destination: string,
+  sinceDays: number,
+  limit: number,
+): { departDate: string; returnDate: string; priceCents: number; capturedAt: string }[] {
+  return db
+    .prepare(
+      `SELECT depart_date AS departDate, return_date AS returnDate,
+              price_cents AS priceCents, captured_at AS capturedAt
+       FROM (
+         SELECT *, ROW_NUMBER() OVER (
+           PARTITION BY depart_date, return_date ORDER BY captured_at DESC
+         ) AS rn
+         FROM price_snapshots
+         WHERE origin = ? AND destination = ?
+           AND captured_at >= datetime('now', '-' || ? || ' days')
+           AND depart_date >= date('now')
+       )
+       WHERE rn = 1 ORDER BY price_cents LIMIT ?`,
+    )
+    .all(origin, destination, sinceDays, limit) as {
+    departDate: string;
+    returnDate: string;
+    priceCents: number;
+    capturedAt: string;
+  }[];
+}
+
+/** Route-months whose recent history is deep enough for a month baseline. */
+export function routeMonthsWithBaseline(db: Db, origin: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT destination, travel_month FROM price_snapshots
+         WHERE origin = ? AND captured_at >= datetime('now', '-60 days')
+         GROUP BY destination, travel_month
+         HAVING COUNT(DISTINCT date(captured_at)) >= 10
+       )`,
+    )
+    .get(origin) as { n: number };
+  return row.n;
+}
+
 // --- alerts ---
 
 export function recordAlert(
