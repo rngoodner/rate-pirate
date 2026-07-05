@@ -1,0 +1,26 @@
+import { Link } from 'react-router-dom';
+import type { Deal } from '@rate-pirate/shared';
+import { monthLabel } from '../api/client';
+import ScoreBadge from './ScoreBadge';
+import PriceTag from './PriceTag';
+
+export default function DealCard({ deal }: { deal: Deal }) {
+  return (
+    <Link
+      to={`/deals/${deal.id}`}
+      className="block rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
+    >
+      <p className="text-lg font-extrabold">{deal.city}</p>
+      <p className="text-sm text-gray-500">
+        {deal.country} • {monthLabel(deal.travelMonth)}
+      </p>
+      <div className="mt-3 flex items-center justify-between">
+        <ScoreBadge score={deal.score} />
+        <span className="flex items-center gap-1">
+          <PriceTag priceCents={deal.bestPriceCents} baselineCents={deal.baselinePriceCents} />
+          <span className="text-gray-400">›</span>
+        </span>
+      </div>
+    </Link>
+  );
+}

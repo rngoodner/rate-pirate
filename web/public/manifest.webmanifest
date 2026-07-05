@@ -1,0 +1,17 @@
+{
+  "name": "Rate Pirate",
+  "short_name": "Rate Pirate",
+  "description": "Flight deal alerts from your home airport",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f3f5",
+  "theme_color": "#bfe6f7",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
