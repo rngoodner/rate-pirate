@@ -169,6 +169,7 @@ interface FlightPriceProvider {
 
 **Score** (pure function):
 ```
+score += {low: +8, typical: 0, high: -8}[google price-insights verdict]   // corroboration nudge, clamped 0–100
 percentile  = fraction of the route's 90-day daily minima strictly more expensive than current price
 discountPct = (baseline - current) / baseline
 score       = round(100 · (0.6·percentile + 0.4·clamp(discountPct / 0.40, 0, 1)))

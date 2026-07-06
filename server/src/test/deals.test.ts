@@ -73,6 +73,25 @@ describe('computeBaseline', () => {
   });
 });
 
+describe('scoreDeal googleLevel corroboration', () => {
+  const base = { currentCents: 80000, baselineCents: 100000, routeHistoryCents: [90000, 95000, 100000, 105000] };
+
+  it('nudges the score by Google’s verdict without dominating it', () => {
+    const neutral = scoreDeal(base).score;
+    expect(scoreDeal({ ...base, googleLevel: 'low' }).score).toBe(neutral + 8);
+    expect(scoreDeal({ ...base, googleLevel: 'typical' }).score).toBe(neutral);
+    expect(scoreDeal({ ...base, googleLevel: 'high' }).score).toBe(neutral - 8);
+    expect(scoreDeal({ ...base, googleLevel: null }).score).toBe(neutral);
+  });
+
+  it('clamps at the 0–100 bounds', () => {
+    const max = { currentCents: 50000, baselineCents: 100000, routeHistoryCents: [90000, 100000] };
+    expect(scoreDeal({ ...max, googleLevel: 'low' }).score).toBe(100);
+    const min = { currentCents: 120000, baselineCents: 100000, routeHistoryCents: [90000, 100000] };
+    expect(scoreDeal({ ...min, googleLevel: 'high' }).score).toBe(0);
+  });
+});
+
 describe('scoreDeal', () => {
   it('scores ~100 for a deep discount undercutting all history', () => {
     const { score } = scoreDeal({

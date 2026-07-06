@@ -62,6 +62,8 @@ export function processRouteMonth(
       baseline.kind === 'google'
         ? (insights?.series.map((p) => p.priceCents) ?? [])
         : dailyMinima(routeHistory),
+    // Corroboration from the scan page's own verdict (same scan as `current`).
+    googleLevel: insights?.level ?? null,
   });
 
   if (discountPct > DEAL_MIN_DISCOUNT) {
