@@ -124,6 +124,9 @@ export function pruneSnapshots(db: Db, olderThanDays: number): number {
 
 // --- destinations ---
 
+/** The catalog is the source of truth: new entries are inserted (user
+ *  active/inactive toggles on existing rows are preserved), and rows for
+ *  destinations REMOVED from the catalog are deleted, their deals expired. */
 export function seedDestinations(
   db: Db,
   catalog: Omit<DestinationRow, 'active'>[],
@@ -133,6 +136,17 @@ export function seedDestinations(
   );
   db.transaction(() => {
     for (const d of catalog) insert.run(d.iata, d.city, d.country, d.region, d.tier);
+    const placeholders = catalog.map(() => '?').join(', ');
+    const iatas = catalog.map((d) => d.iata);
+    const removed = db
+      .prepare(`DELETE FROM destinations WHERE iata NOT IN (${placeholders})`)
+      .run(...iatas).changes;
+    if (removed > 0) {
+      db.prepare(
+        `UPDATE deals SET status = 'expired'
+         WHERE status = 'active' AND destination NOT IN (${placeholders})`,
+      ).run(...iatas);
+    }
   })();
 }
 

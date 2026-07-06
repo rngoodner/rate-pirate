@@ -102,6 +102,40 @@ describe('repo', () => {
     expect(apiCallsToday(db, 'google-flights')).toBe(2);
   });
 
+  it('re-seeding prunes destinations dropped from the catalog and expires their deals', () => {
+    const db = openDb(':memory:');
+    seedDestinations(db, DESTINATION_CATALOG);
+    // A user toggle on a kept destination must survive re-seeding.
+    db.prepare(`UPDATE destinations SET active = 0 WHERE iata = 'NAP'`).run();
+    const goner = DESTINATION_CATALOG[0]!;
+    upsertDeal(db, {
+      source: 'mock',
+      origin: 'ABQ',
+      destination: goner.iata,
+      cabin: 'economy',
+      travelMonth: '2099-08',
+      bestPriceCents: 65000,
+      baselinePriceCents: 100000,
+      discountPct: 0.35,
+      score: 93,
+      departDate: '2099-08-18',
+      returnDate: '2099-08-26',
+      seenAt: '2026-07-06 08:00:00',
+    });
+
+    seedDestinations(db, DESTINATION_CATALOG.slice(1)); // drop the first entry
+    const remaining = activeDestinations(db).map((d) => d.iata);
+    expect(remaining).not.toContain(goner.iata);
+    expect(
+      (db.prepare(`SELECT active FROM destinations WHERE iata = 'NAP'`).get() as { active: number })
+        .active,
+    ).toBe(0); // toggle preserved
+    const deal = db
+      .prepare(`SELECT status FROM deals WHERE destination = ?`)
+      .get(goner.iata) as { status: string };
+    expect(deal.status).toBe('expired');
+  });
+
   it('expires zombie deals outside the scanned universe', () => {
     const db = openDb(':memory:');
     const base = {
