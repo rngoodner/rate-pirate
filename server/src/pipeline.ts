@@ -20,7 +20,13 @@ export function createOnQuotes(
     const asOf = sqliteStamp(now());
     const deal = processRouteMonth(
       db,
-      { source, origin: settings.homeAirport, destination: task.destination, month: task.month },
+      {
+        source,
+        origin: settings.homeAirport,
+        destination: task.destination,
+        cabin: task.cabin,
+        month: task.month,
+      },
       asOf,
     );
     if (deal) await maybeAlert(db, deal, settings, sender, asOf);

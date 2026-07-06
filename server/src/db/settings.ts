@@ -1,6 +1,8 @@
-import type { Settings } from '@rate-pirate/shared';
+import { CABINS, isCabin, type Cabin, type Settings } from '@rate-pirate/shared';
 import type { Config } from '../config.js';
 import type { Db } from './db.js';
+
+const DEFAULT_CABINS: Cabin[] = ['economy', 'premium_economy'];
 
 /** Precedence: DB value → env-derived default → hardcoded default. */
 export function getSettings(db: Db, config: Config): Settings {
@@ -16,7 +18,17 @@ export function getSettings(db: Db, config: Config): Settings {
     // Modest default: with google-flights each call is a headless page load
     dailyCallBudget: intOr(stored.get('daily_call_budget'), 100),
     scanEnabled: (stored.get('scan_enabled') ?? 'true') === 'true',
+    monitoredCabins: parseCabins(stored.get('monitored_cabins')),
   };
+}
+
+/** Parse the stored CSV; fall back to the default if empty/invalid. Order
+ *  follows CABINS so the UI and scans are deterministic. */
+function parseCabins(csv: string | undefined): Cabin[] {
+  if (!csv) return [...DEFAULT_CABINS];
+  const chosen = new Set(csv.split(',').map((s) => s.trim()).filter(isCabin));
+  const ordered = CABINS.filter((c) => chosen.has(c));
+  return ordered.length > 0 ? ordered : [...DEFAULT_CABINS];
 }
 
 export function updateSettings(db: Db, patch: Partial<Settings>): void {
@@ -26,6 +38,9 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
     alert_threshold: patch.alertThreshold?.toString(),
     daily_call_budget: patch.dailyCallBudget?.toString(),
     scan_enabled: patch.scanEnabled === undefined ? undefined : String(patch.scanEnabled),
+    monitored_cabins: patch.monitoredCabins
+      ? CABINS.filter((c) => patch.monitoredCabins!.includes(c)).join(',')
+      : undefined,
   };
   const upsert = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',

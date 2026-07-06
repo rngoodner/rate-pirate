@@ -30,14 +30,17 @@ export interface CallLog {
   ok: boolean;
 }
 
-/** Maps a raw Travelpayouts response to quotes; exported so fixture replay reuses it. */
+/** Maps a raw Travelpayouts response to quotes; exported so fixture replay reuses it.
+ *  The Aviasales cache is economy-only, so non-economy queries yield nothing. */
 export function mapTpResponse(res: TpResponse, q: MonthQuery): RoundTripQuote[] {
+  if (q.cabin !== 'economy') return [];
   if (!res.success || !Array.isArray(res.data)) return [];
   return res.data
     .filter((t) => t.return_at && t.departure_at.startsWith(q.month))
     .map((t) => ({
       origin: q.origin,
       destination: q.destination,
+      cabin: q.cabin,
       departDate: t.departure_at.slice(0, 10),
       returnDate: t.return_at!.slice(0, 10),
       priceCents: Math.round(t.price * 100),
@@ -57,6 +60,7 @@ export class TravelpayoutsProvider implements FlightPriceProvider {
   ) {}
 
   async monthQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
+    if (q.cabin !== 'economy') return []; // Aviasales cache is economy-only
     const raw = await this.fetchRaw(q);
     return mapTpResponse(raw, q);
   }

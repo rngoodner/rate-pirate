@@ -29,7 +29,7 @@ const provider = new TravelpayoutsProvider(token, (log) =>
 
 for (const destination of destinations) {
   for (const month of months) {
-    const q = { origin, destination, month };
+    const q = { origin, destination, cabin: 'economy' as const, month };
     try {
       const raw = await provider.fetchRaw(q);
       const file = join(fixturesDir, `${origin}-${destination}-${month}.json`);

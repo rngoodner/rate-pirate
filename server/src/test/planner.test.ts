@@ -24,6 +24,7 @@ describe('horizonMonths', () => {
 describe('planBatch', () => {
   it('covers the whole universe when the limit allows', () => {
     const tasks = planBatch({
+      cabins: ['economy'],
       destinations: [dest('AAA', 1), dest('BBB', 2)],
       latestCapture: new Map(),
       now,
@@ -35,6 +36,7 @@ describe('planBatch', () => {
 
   it('prefers tier 1 and near months among never-scanned routes', () => {
     const tasks = planBatch({
+      cabins: ['economy'],
       destinations: [dest('TTT', 3), dest('ONE', 1), dest('TWO', 2)],
       latestCapture: new Map(),
       now,
@@ -49,10 +51,11 @@ describe('planBatch', () => {
 
   it('prefers staler route-months within a tier', () => {
     const tasks = planBatch({
+      cabins: ['economy'],
       destinations: [dest('AAA', 2), dest('BBB', 2)],
       latestCapture: new Map([
-        ['AAA|2026-08', '2026-07-05 06:00:00'], // scanned 6h ago
-        ['BBB|2026-08', '2026-07-01 06:00:00'], // scanned 4 days ago
+        ['AAA|2026-08|economy', '2026-07-05 06:00:00'], // scanned 6h ago
+        ['BBB|2026-08|economy', '2026-07-01 06:00:00'], // scanned 4 days ago
       ]),
       now,
       horizon: 1,
@@ -63,8 +66,9 @@ describe('planBatch', () => {
 
   it('never-scanned outranks recently-scanned regardless of tier', () => {
     const tasks = planBatch({
+      cabins: ['economy'],
       destinations: [dest('FAV', 1), dest('NEW', 3)],
-      latestCapture: new Map([['FAV|2026-08', '2026-07-05 11:00:00']]),
+      latestCapture: new Map([['FAV|2026-08|economy', '2026-07-05 11:00:00']]),
       now,
       horizon: 1,
       limit: 1,
@@ -74,6 +78,7 @@ describe('planBatch', () => {
 
   it('respects the limit and returns nothing for a spent budget', () => {
     const tasks = planBatch({
+      cabins: ['economy'],
       destinations: [dest('AAA', 1)],
       latestCapture: new Map(),
       now,
@@ -82,7 +87,7 @@ describe('planBatch', () => {
     });
     expect(tasks).toHaveLength(2);
     expect(
-      planBatch({ destinations: [dest('AAA', 1)], latestCapture: new Map(), now, horizon: 6, limit: 0 }),
+      planBatch({ cabins: ['economy'], destinations: [dest('AAA', 1)], latestCapture: new Map(), now, horizon: 6, limit: 0 }),
     ).toHaveLength(0);
   });
 });

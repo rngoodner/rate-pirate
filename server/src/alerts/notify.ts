@@ -49,6 +49,7 @@ export async function maybeAlert(
     destination: deal.destination,
     city: dest?.city ?? deal.destination,
     country: dest?.country ?? '',
+    cabin: deal.cabin,
     travelMonth: deal.travelMonth,
     priceCents: deal.bestPriceCents,
     baselineCents: deal.baselinePriceCents,

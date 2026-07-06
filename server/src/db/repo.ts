@@ -1,8 +1,10 @@
+import type { Cabin } from '@rate-pirate/shared';
 import type { Db } from './db.js';
 
 export interface SnapshotInput {
   origin: string;
   destination: string;
+  cabin: Cabin;
   travelMonth: string;
   departDate: string;
   returnDate: string;
@@ -28,17 +30,18 @@ export interface DestinationRow {
   active: boolean;
 }
 
-const snapshotCols = `id, origin, destination, travel_month AS travelMonth, depart_date AS departDate,
+const snapshotCols = `id, origin, destination, cabin, travel_month AS travelMonth, depart_date AS departDate,
   return_date AS returnDate, price_cents AS priceCents, stops, carrier, source, captured_at AS capturedAt`;
 
 export function insertSnapshot(db: Db, s: SnapshotInput): void {
   db.prepare(
     `INSERT INTO price_snapshots
-       (origin, destination, travel_month, depart_date, return_date, price_cents, stops, carrier, source, captured_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+       (origin, destination, cabin, travel_month, depart_date, return_date, price_cents, stops, carrier, source, captured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
   ).run(
     s.origin,
     s.destination,
+    s.cabin,
     s.travelMonth,
     s.departDate,
     s.returnDate,
@@ -55,6 +58,7 @@ export function snapshotsForRouteMonth(
   source: string,
   origin: string,
   destination: string,
+  cabin: Cabin,
   travelMonth: string,
   sinceDays: number,
   asOf?: string,
@@ -62,12 +66,12 @@ export function snapshotsForRouteMonth(
   return db
     .prepare(
       `SELECT ${snapshotCols} FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND travel_month = ?
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
          AND captured_at >= datetime(COALESCE(?, 'now'), '-' || ? || ' days')
          AND captured_at <= COALESCE(?, datetime('now'))
        ORDER BY captured_at`,
     )
-    .all(source, origin, destination, travelMonth, asOf ?? null, sinceDays, asOf ?? null) as SnapshotRow[];
+    .all(source, origin, destination, cabin, travelMonth, asOf ?? null, sinceDays, asOf ?? null) as SnapshotRow[];
 }
 
 export function snapshotsForRoute(
@@ -75,21 +79,23 @@ export function snapshotsForRoute(
   source: string,
   origin: string,
   destination: string,
+  cabin: Cabin,
   sinceDays: number,
   asOf?: string,
 ): SnapshotRow[] {
   return db
     .prepare(
       `SELECT ${snapshotCols} FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ?
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ?
          AND captured_at >= datetime(COALESCE(?, 'now'), '-' || ? || ' days')
          AND captured_at <= COALESCE(?, datetime('now'))
        ORDER BY captured_at`,
     )
-    .all(source, origin, destination, asOf ?? null, sinceDays, asOf ?? null) as SnapshotRow[];
+    .all(source, origin, destination, cabin, asOf ?? null, sinceDays, asOf ?? null) as SnapshotRow[];
 }
 
-/** Latest capture time per route-month, for the planner's staleness ranking. */
+/** Latest capture time per route-month-cabin, for the planner's staleness
+ *  ranking. Keys are `${destination}|${month}|${cabin}`. */
 export function latestCaptureByRouteMonth(
   db: Db,
   source: string,
@@ -97,11 +103,17 @@ export function latestCaptureByRouteMonth(
 ): Map<string, string> {
   const rows = db
     .prepare(
-      `SELECT destination, travel_month AS travelMonth, MAX(captured_at) AS latest
-       FROM price_snapshots WHERE source = ? AND origin = ? GROUP BY destination, travel_month`,
+      `SELECT destination, cabin, travel_month AS travelMonth, MAX(captured_at) AS latest
+       FROM price_snapshots WHERE source = ? AND origin = ?
+       GROUP BY destination, cabin, travel_month`,
     )
-    .all(source, origin) as { destination: string; travelMonth: string; latest: string }[];
-  return new Map(rows.map((r) => [`${r.destination}|${r.travelMonth}`, r.latest]));
+    .all(source, origin) as {
+    destination: string;
+    cabin: string;
+    travelMonth: string;
+    latest: string;
+  }[];
+  return new Map(rows.map((r) => [`${r.destination}|${r.travelMonth}|${r.cabin}`, r.latest]));
 }
 
 export function pruneSnapshots(db: Db, olderThanDays: number): number {
@@ -145,16 +157,17 @@ export function latestScanSnapshots(
   source: string,
   origin: string,
   destination: string,
+  cabin: Cabin,
   travelMonth: string,
   asOf?: string,
 ): SnapshotRow[] {
   return db
     .prepare(
       `SELECT ${snapshotCols} FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND travel_month = ?
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
          AND captured_at = (
            SELECT MAX(captured_at) FROM price_snapshots
-           WHERE source = ? AND origin = ? AND destination = ? AND travel_month = ?
+           WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
              AND captured_at <= COALESCE(?, datetime('now'))
          )
        ORDER BY price_cents`,
@@ -163,10 +176,12 @@ export function latestScanSnapshots(
       source,
       origin,
       destination,
+      cabin,
       travelMonth,
       source,
       origin,
       destination,
+      cabin,
       travelMonth,
       asOf ?? null,
     ) as SnapshotRow[];
@@ -179,6 +194,7 @@ export interface DealRow {
   source: string;
   origin: string;
   destination: string;
+  cabin: Cabin;
   travelMonth: string;
   bestPriceCents: number;
   baselinePriceCents: number;
@@ -191,7 +207,7 @@ export interface DealRow {
   status: 'active' | 'expired';
 }
 
-const dealCols = `id, source, origin, destination, travel_month AS travelMonth,
+const dealCols = `id, source, origin, destination, cabin, travel_month AS travelMonth,
   best_price_cents AS bestPriceCents, baseline_price_cents AS baselinePriceCents,
   discount_pct AS discountPct, score, depart_date AS departDate, return_date AS returnDate,
   first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status`;
@@ -200,6 +216,7 @@ export interface DealInput {
   source: string;
   origin: string;
   destination: string;
+  cabin: Cabin;
   travelMonth: string;
   bestPriceCents: number;
   baselinePriceCents: number;
@@ -212,10 +229,10 @@ export interface DealInput {
 
 export function upsertDeal(db: Db, d: DealInput): DealRow {
   db.prepare(
-    `INSERT INTO deals (source, origin, destination, travel_month, best_price_cents, baseline_price_cents,
+    `INSERT INTO deals (source, origin, destination, cabin, travel_month, best_price_cents, baseline_price_cents,
        discount_pct, score, depart_date, return_date, first_seen_at, last_seen_at, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
-     ON CONFLICT(source, origin, destination, travel_month) DO UPDATE SET
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+     ON CONFLICT(source, origin, destination, cabin, travel_month) DO UPDATE SET
        best_price_cents = excluded.best_price_cents,
        baseline_price_cents = excluded.baseline_price_cents,
        discount_pct = excluded.discount_pct,
@@ -228,6 +245,7 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
     d.source,
     d.origin,
     d.destination,
+    d.cabin,
     d.travelMonth,
     d.bestPriceCents,
     d.baselinePriceCents,
@@ -238,7 +256,7 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
     d.seenAt,
     d.seenAt,
   );
-  return getDealByRouteMonth(db, d.source, d.origin, d.destination, d.travelMonth)!;
+  return getDealByRouteMonth(db, d.source, d.origin, d.destination, d.cabin, d.travelMonth)!;
 }
 
 export function getDealByRouteMonth(
@@ -246,15 +264,16 @@ export function getDealByRouteMonth(
   source: string,
   origin: string,
   destination: string,
+  cabin: Cabin,
   travelMonth: string,
 ): DealRow | null {
   return (
     (db
       .prepare(
         `SELECT ${dealCols} FROM deals
-         WHERE source = ? AND origin = ? AND destination = ? AND travel_month = ?`,
+         WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?`,
       )
-      .get(source, origin, destination, travelMonth) as DealRow | undefined) ?? null
+      .get(source, origin, destination, cabin, travelMonth) as DealRow | undefined) ?? null
   );
 }
 
@@ -290,22 +309,26 @@ export interface DealWithPlace extends DealRow {
   country: string;
 }
 
-const dealPlaceCols = `d.id, d.source, d.origin, d.destination, d.travel_month AS travelMonth,
+const dealPlaceCols = `d.id, d.source, d.origin, d.destination, d.cabin, d.travel_month AS travelMonth,
   d.best_price_cents AS bestPriceCents, d.baseline_price_cents AS baselinePriceCents,
   d.discount_pct AS discountPct, d.score, d.depart_date AS departDate,
   d.return_date AS returnDate, d.first_seen_at AS firstSeenAt,
   d.last_seen_at AS lastSeenAt, d.status`;
 
-export function activeDealsWithPlace(db: Db, source: string): DealWithPlace[] {
+/** Active deals for the given source, restricted to the given cabins (the feed
+ *  only shows cabins the user currently monitors). Empty `cabins` → no deals. */
+export function activeDealsWithPlace(db: Db, source: string, cabins: Cabin[]): DealWithPlace[] {
+  if (cabins.length === 0) return [];
+  const placeholders = cabins.map(() => '?').join(', ');
   return db
     .prepare(
       `SELECT ${dealPlaceCols}, COALESCE(dest.city, d.destination) AS city,
               COALESCE(dest.country, '') AS country
        FROM deals d LEFT JOIN destinations dest ON dest.iata = d.destination
-       WHERE d.source = ? AND d.status = 'active'
+       WHERE d.source = ? AND d.status = 'active' AND d.cabin IN (${placeholders})
        ORDER BY d.score DESC, d.discount_pct DESC`,
     )
-    .all(source) as DealWithPlace[];
+    .all(source, ...cabins) as DealWithPlace[];
 }
 
 export function getDealWithPlace(db: Db, id: number): DealWithPlace | null {
@@ -321,12 +344,13 @@ export function getDealWithPlace(db: Db, id: number): DealWithPlace | null {
   );
 }
 
-/** Most recent price per distinct date pair on a route, cheapest first. */
+/** Most recent price per distinct date pair on a route+cabin, cheapest first. */
 export function recentDateOptions(
   db: Db,
   source: string,
   origin: string,
   destination: string,
+  cabin: Cabin,
   sinceDays: number,
   limit: number,
 ): { departDate: string; returnDate: string; priceCents: number; capturedAt: string }[] {
@@ -339,13 +363,13 @@ export function recentDateOptions(
            PARTITION BY depart_date, return_date ORDER BY captured_at DESC
          ) AS rn
          FROM price_snapshots
-         WHERE source = ? AND origin = ? AND destination = ?
+         WHERE source = ? AND origin = ? AND destination = ? AND cabin = ?
            AND captured_at >= datetime('now', '-' || ? || ' days')
            AND depart_date >= date('now')
        )
        WHERE rn = 1 ORDER BY price_cents LIMIT ?`,
     )
-    .all(source, origin, destination, sinceDays, limit) as {
+    .all(source, origin, destination, cabin, sinceDays, limit) as {
     departDate: string;
     returnDate: string;
     priceCents: number;
@@ -353,18 +377,27 @@ export function recentDateOptions(
   }[];
 }
 
-/** Route-months whose recent history is deep enough for a month baseline. */
-export function routeMonthsWithBaseline(db: Db, source: string, origin: string): number {
+/** Route-month-cabins whose recent history is deep enough for a baseline,
+ *  restricted to the given cabins. */
+export function routeMonthsWithBaseline(
+  db: Db,
+  source: string,
+  origin: string,
+  cabins: Cabin[],
+): number {
+  if (cabins.length === 0) return 0;
+  const placeholders = cabins.map(() => '?').join(', ');
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM (
-         SELECT destination, travel_month FROM price_snapshots
-         WHERE source = ? AND origin = ? AND captured_at >= datetime('now', '-60 days')
-         GROUP BY destination, travel_month
+         SELECT destination, travel_month, cabin FROM price_snapshots
+         WHERE source = ? AND origin = ? AND cabin IN (${placeholders})
+           AND captured_at >= datetime('now', '-60 days')
+         GROUP BY destination, travel_month, cabin
          HAVING COUNT(DISTINCT date(captured_at)) >= 10
        )`,
     )
-    .get(source, origin) as { n: number };
+    .get(source, origin, ...cabins) as { n: number };
   return row.n;
 }
 

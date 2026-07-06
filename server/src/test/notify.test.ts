@@ -11,6 +11,7 @@ const settings: Settings = {
   alertThreshold: 85,
   dailyCallBudget: 500,
   scanEnabled: true,
+  monitoredCabins: ['economy'],
 };
 
 function fakeSender() {
@@ -32,6 +33,7 @@ function makeDeal(
     source: 'mock',
     origin: 'ABQ',
     destination: 'NAP',
+    cabin: 'economy',
     travelMonth: '2026-08',
     bestPriceCents: 65000,
     baselinePriceCents: 100000,

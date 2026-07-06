@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { ScanStatus, Settings as SettingsType } from '@rate-pirate/shared';
+import {
+  CABINS,
+  CABIN_LABELS,
+  type Cabin,
+  type ScanStatus,
+  type Settings as SettingsType,
+} from '@rate-pirate/shared';
 import { api } from '../api/client';
 
 export default function Settings() {
@@ -20,6 +26,20 @@ export default function Settings() {
     } catch (e) {
       setNotice((e as Error).message);
     }
+  }
+
+  function toggleCabin(cabin: Cabin) {
+    if (!settings) return;
+    const has = settings.monitoredCabins.includes(cabin);
+    const next = has
+      ? settings.monitoredCabins.filter((c) => c !== cabin)
+      : CABINS.filter((c) => c === cabin || settings.monitoredCabins.includes(c));
+    if (next.length === 0) {
+      setNotice('Keep at least one cabin selected');
+      setTimeout(() => setNotice(null), 1500);
+      return;
+    }
+    save({ monitoredCabins: next });
   }
 
   if (!settings) return <p className="mt-12 text-center text-gray-400">Loading…</p>;
@@ -71,6 +91,33 @@ export default function Settings() {
           />
           <p className="text-xs text-gray-500">
             Higher = fewer, better deals. Emails also require the price to be ≥20% below normal.
+          </p>
+        </Field>
+
+        <Field label="Cabins to monitor">
+          <div className="flex flex-wrap gap-2">
+            {CABINS.map((cabin) => {
+              const selected = settings.monitoredCabins.includes(cabin);
+              return (
+                <button
+                  key={cabin}
+                  type="button"
+                  aria-pressed={selected}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                    selected
+                      ? 'border-brand bg-brand text-white'
+                      : 'border-gray-300 bg-white text-gray-600'
+                  }`}
+                  onClick={() => toggleCabin(cabin)}
+                >
+                  {CABIN_LABELS[cabin]}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Each cabin is scanned separately, so monitoring more cabins means each one refreshes
+            less often. At least one is required.
           </p>
         </Field>
 

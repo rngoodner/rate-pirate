@@ -18,7 +18,8 @@ const BATCH_HOURS = [0, 5, 11, 16]; // offsets from 06:00 → 06,11,17,22
 function makeSim(dailyBudget: number) {
   const db = openDb(':memory:');
   seedDestinations(db, DESTINATION_CATALOG);
-  updateSettings(db, { dailyCallBudget: dailyBudget });
+  // Economy-only keeps the universe at destinations × 6 for these budget assertions.
+  updateSettings(db, { dailyCallBudget: dailyBudget, monitoredCabins: ['economy'] });
   let virtualNow = new Date(START);
   const provider = new SyntheticProvider({ seed: 42, now: () => virtualNow });
   const deps = { db, config, provider, now: () => virtualNow };
@@ -70,7 +71,7 @@ describe('30-day scan simulation', () => {
     const endOfRun = START + 30 * DAY;
     for (const d of DESTINATION_CATALOG.filter((d) => d.tier === 1)) {
       for (const month of months.slice(0, 2)) {
-        const captured = latest.get(`${d.iata}|${month}`);
+        const captured = latest.get(`${d.iata}|${month}|economy`);
         expect(captured, `${d.iata}|${month} never scanned`).toBeTruthy();
         const age = endOfRun - Date.parse(captured!.replace(' ', 'T') + 'Z');
         expect(age, `${d.iata}|${month} stale ${Math.round(age / DAY)}d`).toBeLessThanOrEqual(3.5 * DAY);

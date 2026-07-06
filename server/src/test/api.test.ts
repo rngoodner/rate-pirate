@@ -21,6 +21,7 @@ function seedDeal(db: ReturnType<typeof openDb>, destination: string, score: num
     source: 'mock',
     origin: 'ABQ',
     destination,
+    cabin: 'economy',
     travelMonth: '2099-08',
     bestPriceCents: 65000,
     baselinePriceCents: 100000,
@@ -55,6 +56,7 @@ describe('API routes', () => {
       insertSnapshot(db, {
         origin: 'ABQ',
         destination: 'NAP',
+        cabin: 'economy',
         travelMonth: '2099-08',
         departDate: depart,
         returnDate: ret,

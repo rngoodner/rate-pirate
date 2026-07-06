@@ -15,6 +15,7 @@ describe('settings', () => {
       alertThreshold: 85,
       dailyCallBudget: 100,
       scanEnabled: true,
+      monitoredCabins: ['economy', 'premium_economy'],
     });
   });
 

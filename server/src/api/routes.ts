@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
+  CABINS,
   googleFlightsUrl,
   type Deal,
   type DealDetail,
@@ -28,6 +29,10 @@ const settingsPatchSchema = z
     alertThreshold: z.number().int().min(50).max(100),
     dailyCallBudget: z.number().int().min(4).max(5000),
     scanEnabled: z.boolean(),
+    monitoredCabins: z
+      .array(z.enum(CABINS))
+      .nonempty('select at least one cabin')
+      .transform((cabins) => [...new Set(cabins)]),
   })
   .partial()
   .strict();
@@ -39,6 +44,7 @@ function toWireDeal(d: DealWithPlace): Deal {
     destination: d.destination,
     city: d.city,
     country: d.country,
+    cabin: d.cabin,
     travelMonth: d.travelMonth,
     bestPriceCents: d.bestPriceCents,
     baselinePriceCents: d.baselinePriceCents,
@@ -59,7 +65,10 @@ export function apiRoutes(deps: AppDeps): Hono {
   api.get('/health', (c) => c.json({ ok: true }));
 
   api.get('/deals', (c) => {
-    const deals: Deal[] = activeDealsWithPlace(db, deps.provider.name).map(toWireDeal);
+    const { monitoredCabins } = getSettings(db, config);
+    const deals: Deal[] = activeDealsWithPlace(db, deps.provider.name, monitoredCabins).map(
+      toWireDeal,
+    );
     return c.json(deals);
   });
 
@@ -69,14 +78,28 @@ export function apiRoutes(deps: AppDeps): Hono {
     const deal = getDealWithPlace(db, id);
     if (!deal) return c.json({ error: 'deal not found' }, 404);
 
-    const options = recentDateOptions(db, deal.source, deal.origin, deal.destination, 7, 20);
+    const options = recentDateOptions(
+      db,
+      deal.source,
+      deal.origin,
+      deal.destination,
+      deal.cabin,
+      7,
+      20,
+    );
     const detail: DealDetail = {
       ...toWireDeal(deal),
       dateOptions: options.map((o) => ({
         ...o,
         nights: Math.round((Date.parse(o.returnDate) - Date.parse(o.departDate)) / 86_400_000),
         baselinePriceCents: deal.baselinePriceCents,
-        googleFlightsUrl: googleFlightsUrl(deal.origin, deal.destination, o.departDate, o.returnDate),
+        googleFlightsUrl: googleFlightsUrl(
+          deal.origin,
+          deal.destination,
+          o.departDate,
+          o.returnDate,
+          deal.cabin,
+        ),
       })),
     };
     return c.json(detail);
@@ -96,7 +119,9 @@ export function apiRoutes(deps: AppDeps): Hono {
 
   api.get('/status', (c) => {
     const settings = getSettings(db, config);
-    const universe = activeDestinations(db).length * HORIZON_MONTHS;
+    // Universe scales with the number of cabins actually monitored.
+    const universe =
+      activeDestinations(db).length * HORIZON_MONTHS * settings.monitoredCabins.length;
     const status: ScanStatus = {
       provider: deps.provider.name,
       lastScanAt: lastApiCallAt(db, deps.provider.name),
@@ -105,8 +130,9 @@ export function apiRoutes(deps: AppDeps): Hono {
       baselineCoverage:
         universe === 0
           ? 0
-          : routeMonthsWithBaseline(db, deps.provider.name, settings.homeAirport) / universe,
-      activeDeals: activeDealsWithPlace(db, deps.provider.name).length,
+          : routeMonthsWithBaseline(db, deps.provider.name, settings.homeAirport, settings.monitoredCabins) /
+            universe,
+      activeDeals: activeDealsWithPlace(db, deps.provider.name, settings.monitoredCabins).length,
     };
     return c.json(status);
   });
@@ -123,6 +149,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       destination: 'NAP',
       city: 'Naples',
       country: 'Italy',
+      cabin: settings.monitoredCabins[0] ?? 'economy',
       travelMonth: '2026-08',
       priceCents: 75800,
       baselineCents: 112300,

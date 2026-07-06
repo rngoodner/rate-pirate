@@ -1,8 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Cabin } from '@rate-pirate/shared';
 import type { FlightPriceProvider, MonthQuery, RoundTripQuote } from './types.js';
 import { mapTpResponse, type TpResponse } from './travelpayouts.js';
+
+/** Rough real-world round-trip price multipliers relative to economy. */
+const CABIN_PRICE_FACTOR: Record<Cabin, number> = {
+  economy: 1,
+  premium_economy: 1.8,
+  business: 3.6,
+  first: 5.5,
+};
 
 const fixturesDir = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -50,7 +59,7 @@ export class SyntheticProvider implements FlightPriceProvider {
   async monthQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
     const today = this.now();
     const dayKey = Math.floor(today.getTime() / 86_400_000);
-    const base = this.basePrice(q.destination);
+    const base = this.basePrice(q.destination) * CABIN_PRICE_FACTOR[q.cabin];
     const monthNum = Number(q.month.slice(5, 7));
     // Seasonal swing: peaks in summer (northern-hemisphere bias is fine for a mock)
     const seasonal = 1 + 0.18 * Math.sin(((monthNum - 1) / 12) * 2 * Math.PI - Math.PI / 2);
@@ -71,6 +80,7 @@ export class SyntheticProvider implements FlightPriceProvider {
       quotes.push({
         origin: q.origin,
         destination: q.destination,
+        cabin: q.cabin,
         departDate: depart.toISOString().slice(0, 10),
         returnDate: ret.toISOString().slice(0, 10),
         priceCents: Math.round(base * seasonal * noise * drop * 100),

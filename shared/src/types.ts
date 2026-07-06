@@ -1,13 +1,40 @@
 /** API wire types shared between server and web. */
 
+/** Cabin / fare classes the app can monitor. Stored and compared by these keys. */
+export const CABINS = ['economy', 'premium_economy', 'business', 'first'] as const;
+export type Cabin = (typeof CABINS)[number];
+
+export const CABIN_LABELS: Record<Cabin, string> = {
+  economy: 'Economy',
+  premium_economy: 'Premium Economy',
+  business: 'Business',
+  first: 'First',
+};
+
+/** Natural-language phrase Google Flights understands for each cabin ('' = economy default). */
+export const CABIN_QUERY_PHRASE: Record<Cabin, string> = {
+  economy: '',
+  premium_economy: 'premium economy',
+  business: 'business class',
+  first: 'first class',
+};
+
+export function isCabin(value: string): value is Cabin {
+  return (CABINS as readonly string[]).includes(value);
+}
+
 /** Where-to-buy deep link — Rate Pirate never books flights itself. */
 export function googleFlightsUrl(
   origin: string,
   destination: string,
   departDate: string,
   returnDate: string,
+  cabin: Cabin = 'economy',
 ): string {
-  const q = `Flights from ${origin} to ${destination} on ${departDate} through ${returnDate}`;
+  const phrase = CABIN_QUERY_PHRASE[cabin];
+  const q =
+    `Flights from ${origin} to ${destination} on ${departDate} through ${returnDate}` +
+    (phrase ? ` ${phrase}` : '');
   return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;
 }
 
@@ -17,6 +44,7 @@ export interface Deal {
   destination: string;
   city: string;
   country: string;
+  cabin: Cabin;
   /** Departure month bucket, 'YYYY-MM'. */
   travelMonth: string;
   bestPriceCents: number;
@@ -53,6 +81,8 @@ export interface Settings {
   alertThreshold: number;
   dailyCallBudget: number;
   scanEnabled: boolean;
+  /** Cabins to monitor; at least one. More cabins = slower scan cadence. */
+  monitoredCabins: Cabin[];
 }
 
 export interface ScanStatus {

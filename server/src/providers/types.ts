@@ -1,6 +1,9 @@
+import type { Cabin } from '@rate-pirate/shared';
+
 export interface RoundTripQuote {
   origin: string;
   destination: string;
+  cabin: Cabin;
   /** 'YYYY-MM-DD' */
   departDate: string;
   returnDate: string;
@@ -15,6 +18,7 @@ export interface RoundTripQuote {
 export interface MonthQuery {
   origin: string;
   destination: string;
+  cabin: Cabin;
   /** Departure month, 'YYYY-MM'. */
   month: string;
 }

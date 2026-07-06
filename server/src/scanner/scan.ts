@@ -54,6 +54,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
   const limit = Math.min(remaining, batchLimit ?? Math.ceil(settings.dailyCallBudget / 4));
   const tasks = planBatch({
     destinations: activeDestinations(db),
+    cabins: settings.monitoredCabins,
     latestCapture: latestCaptureByRouteMonth(db, provider.name, settings.homeAirport),
     now: now(),
     horizon: HORIZON_MONTHS,
@@ -69,6 +70,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
       const quotes = await provider.monthQuotes({
         origin: settings.homeAirport,
         destination: task.destination,
+        cabin: task.cabin,
         month: task.month,
       });
       // The real provider logs its own calls (with HTTP status); the mock doesn't.
@@ -76,7 +78,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
         recordApiCall(db, {
           provider: 'mock',
           endpoint: 'monthQuotes',
-          route: `${settings.homeAirport}-${task.destination} ${task.month}`,
+          route: `${settings.homeAirport}-${task.destination} ${task.month} ${task.cabin}`,
           ok: true,
           calledAt: capturedAt,
         });
@@ -86,6 +88,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
         insertSnapshot(db, {
           origin: q.origin,
           destination: q.destination,
+          cabin: q.cabin,
           travelMonth: task.month,
           departDate: q.departDate,
           returnDate: q.returnDate,
@@ -100,7 +103,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
       if (quotes.length > 0) await deps.onQuotes?.(task, quotes);
     } catch (err) {
       failures++;
-      console.error(`scan failed for ${task.destination} ${task.month}:`, err);
+      console.error(`scan failed for ${task.destination} ${task.month} ${task.cabin}:`, err);
     }
   }
 

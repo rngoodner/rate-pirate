@@ -3,7 +3,7 @@ import { SyntheticProvider } from '../providers/mock.js';
 import { mapTpResponse, type TpResponse } from '../providers/travelpayouts.js';
 
 describe('SyntheticProvider', () => {
-  const q = { origin: 'ABQ', destination: 'NAP', month: '2026-08' };
+  const q = { origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, month: '2026-08' };
   const fixedNow = () => new Date('2026-07-05T12:00:00Z');
 
   it('is deterministic for the same seed and day', async () => {
@@ -51,7 +51,7 @@ describe('SyntheticProvider', () => {
 });
 
 describe('mapTpResponse', () => {
-  const q = { origin: 'ABQ', destination: 'NAP', month: '2026-08' };
+  const q = { origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, month: '2026-08' };
 
   it('maps tickets and converts price to cents', () => {
     const res: TpResponse = {
@@ -73,6 +73,7 @@ describe('mapTpResponse', () => {
       {
         origin: 'ABQ',
         destination: 'NAP',
+        cabin: 'economy',
         departDate: '2026-08-18',
         returnDate: '2026-08-26',
         priceCents: 75840,

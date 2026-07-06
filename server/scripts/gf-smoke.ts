@@ -18,7 +18,7 @@ const provider = new GoogleFlightsProvider(findChrome(config.CHROME_PATH), (log)
 
 for (const destination of destinations) {
   try {
-    const quotes = await provider.monthQuotes({ origin, destination, month });
+    const quotes = await provider.monthQuotes({ origin, destination, cabin: 'economy', month });
     if (quotes.length === 0) {
       console.log(`${origin}-${destination} ${month}: no results`);
       continue;

@@ -7,6 +7,7 @@ declare const document: {
   querySelectorAll: (selector: string) => Iterable<{ getAttribute: (name: string) => string | null }>;
   body: { innerText: string };
 };
+import { CABIN_QUERY_PHRASE } from '@rate-pirate/shared';
 import type { FlightPriceProvider, MonthQuery, RoundTripQuote } from './types.js';
 import { ProviderError } from './types.js';
 import type { CallLog } from './travelpayouts.js';
@@ -95,8 +96,13 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
 
   private async fetchQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
     const { departDate, returnDate } = representativeDates(q.month);
-    const route = `${q.origin}-${q.destination} ${q.month}`;
-    const query = `Flights from ${q.origin} to ${q.destination} on ${departDate} through ${returnDate}`;
+    const route = `${q.origin}-${q.destination} ${q.month} ${q.cabin}`;
+    // Economy keeps the exact query proven to work; premium cabins append the
+    // cabin phrase Google's natural-language search understands.
+    const phrase = CABIN_QUERY_PHRASE[q.cabin];
+    const query =
+      `Flights from ${q.origin} to ${q.destination} on ${departDate} through ${returnDate}` +
+      (phrase ? ` ${phrase}` : '');
     const url = `https://www.google.com/travel/flights?q=${encodeURIComponent(query)}&hl=en&curr=USD`;
 
     await this.throttle();
@@ -145,6 +151,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
         quotes.push({
           origin: q.origin,
           destination: q.destination,
+          cabin: q.cabin,
           departDate,
           returnDate,
           priceCents: parsed.priceUsd * 100,

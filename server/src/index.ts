@@ -24,9 +24,11 @@ const sender = createEmailSender(config);
 if (provider.name === 'mock') {
   if (needsDemoSeed(db)) {
     purgeMockData(db); // clear partial/stale demo leftovers before reseeding
+    const settings = getSettings(db, config);
     console.log('demo mode: seeding 14 days of synthetic price history…');
     const { snapshots, days } = await seedDemoHistory(db, {
-      homeAirport: getSettings(db, config).homeAirport,
+      homeAirport: settings.homeAirport,
+      cabins: settings.monitoredCabins,
     });
     console.log(`demo mode: seeded ${snapshots} snapshots over ${days} virtual days`);
   }

@@ -10,6 +10,7 @@ function rows(prices: number[], startDay = 1, month = '2026-06'): SnapshotRow[] 
     id: i,
     origin: 'ABQ',
     destination: 'NAP',
+    cabin: 'economy' as const,
     travelMonth: '2026-08',
     departDate: '2026-08-18',
     returnDate: '2026-08-26',
@@ -95,13 +96,14 @@ describe('scoreDeal', () => {
 });
 
 describe('processRouteMonth', () => {
-  const route = { source: 'mock', origin: 'ABQ', destination: 'NAP', month: '2026-08' };
+  const route = { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, month: '2026-08' };
 
   function seedHistory(db: ReturnType<typeof openDb>, priceCents: number, days = 12) {
     for (let day = 1; day <= days; day++) {
       insertSnapshot(db, {
         origin: 'ABQ',
         destination: 'NAP',
+        cabin: 'economy',
         travelMonth: '2026-08',
         departDate: '2026-08-18',
         returnDate: '2026-08-26',
@@ -120,6 +122,7 @@ describe('processRouteMonth', () => {
     insertSnapshot(db, {
       origin: 'ABQ',
       destination: 'NAP',
+      cabin: 'economy',
       travelMonth: '2026-08',
       departDate: '2026-08-10',
       returnDate: '2026-08-17',
@@ -143,7 +146,7 @@ describe('processRouteMonth', () => {
     const db = openDb(':memory:');
     seedHistory(db, 100000, 3); // too few days
     expect(processRouteMonth(db, route, '2026-06-04 12:00:00')).toBeNull();
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', '2026-08')).toBeNull();
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')).toBeNull();
   });
 
   it('expires the deal when the price recovers', () => {
@@ -152,6 +155,7 @@ describe('processRouteMonth', () => {
     insertSnapshot(db, {
       origin: 'ABQ',
       destination: 'NAP',
+      cabin: 'economy',
       travelMonth: '2026-08',
       departDate: '2026-08-10',
       returnDate: '2026-08-17',
@@ -167,6 +171,7 @@ describe('processRouteMonth', () => {
     insertSnapshot(db, {
       origin: 'ABQ',
       destination: 'NAP',
+      cabin: 'economy',
       travelMonth: '2026-08',
       departDate: '2026-08-18',
       returnDate: '2026-08-26',
@@ -177,7 +182,7 @@ describe('processRouteMonth', () => {
       capturedAt: '2026-06-21 08:00:00',
     });
     expect(processRouteMonth(db, route, '2026-06-21 08:00:00')).toBeNull();
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', '2026-08')!.status).toBe('expired');
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe('expired');
   });
 
   it('refreshes an existing deal in place (same route-month stays one row)', () => {
@@ -190,6 +195,7 @@ describe('processRouteMonth', () => {
       insertSnapshot(db, {
         origin: 'ABQ',
         destination: 'NAP',
+        cabin: 'economy',
         travelMonth: '2026-08',
         departDate: '2026-08-10',
         returnDate: '2026-08-17',
@@ -201,7 +207,7 @@ describe('processRouteMonth', () => {
       });
       processRouteMonth(db, route, `2026-06-${day} 08:00:00`);
     }
-    const deal = getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', '2026-08')!;
+    const deal = getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!;
     expect(deal.bestPriceCents).toBe(62000);
     expect(deal.firstSeenAt).toBe('2026-06-20 08:00:00');
     expect(deal.lastSeenAt).toBe('2026-06-21 08:00:00');

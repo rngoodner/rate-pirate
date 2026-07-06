@@ -1,7 +1,9 @@
+import type { Cabin } from '@rate-pirate/shared';
 import type { DestinationRow } from '../db/repo.js';
 
 export interface RouteMonthTask {
   destination: string;
+  cabin: Cabin;
   month: string;
   tier: number;
 }
@@ -29,27 +31,31 @@ export function horizonMonths(now: Date, horizon: number): string[] {
  *  under a tight one, favorites and near months cycle fastest. */
 export function planBatch(opts: {
   destinations: DestinationRow[];
-  /** `${destination}|${month}` → latest captured_at (SQLite datetime). */
+  /** Cabins to scan; the scan universe is destinations × months × cabins. */
+  cabins: Cabin[];
+  /** `${destination}|${month}|${cabin}` → latest captured_at (SQLite datetime). */
   latestCapture: Map<string, string>;
   now: Date;
   horizon: number;
   limit: number;
 }): RouteMonthTask[] {
-  if (opts.limit <= 0) return [];
+  if (opts.limit <= 0 || opts.cabins.length === 0) return [];
   const months = horizonMonths(opts.now, opts.horizon);
 
   const candidates = opts.destinations.flatMap((dest) =>
-    months
-      .map((month, monthIdx) => {
-        const latest = opts.latestCapture.get(`${dest.iata}|${month}`);
-        const staleHours = latest
-          ? Math.max(0, (opts.now.getTime() - Date.parse(latest.replace(' ', 'T') + 'Z')) / 3_600_000)
-          : NEVER_SCANNED_HOURS;
-        const monthBoost = monthIdx < 3 ? 1.5 : 1;
-        const priority = staleHours * (TIER_WEIGHT[dest.tier] ?? 1) * monthBoost;
-        return { destination: dest.iata, month, tier: dest.tier, staleHours, priority };
-      })
-      .filter((c) => c.staleHours >= MIN_STALE_HOURS),
+    months.flatMap((month, monthIdx) =>
+      opts.cabins
+        .map((cabin) => {
+          const latest = opts.latestCapture.get(`${dest.iata}|${month}|${cabin}`);
+          const staleHours = latest
+            ? Math.max(0, (opts.now.getTime() - Date.parse(latest.replace(' ', 'T') + 'Z')) / 3_600_000)
+            : NEVER_SCANNED_HOURS;
+          const monthBoost = monthIdx < 3 ? 1.5 : 1;
+          const priority = staleHours * (TIER_WEIGHT[dest.tier] ?? 1) * monthBoost;
+          return { destination: dest.iata, cabin, month, tier: dest.tier, staleHours, priority };
+        })
+        .filter((c) => c.staleHours >= MIN_STALE_HOURS),
+    ),
   );
 
   return candidates
@@ -58,8 +64,9 @@ export function planBatch(opts: {
         b.priority - a.priority ||
         a.tier - b.tier ||
         a.month.localeCompare(b.month) ||
-        a.destination.localeCompare(b.destination),
+        a.destination.localeCompare(b.destination) ||
+        a.cabin.localeCompare(b.cabin),
     )
     .slice(0, opts.limit)
-    .map(({ destination, month, tier }) => ({ destination, month, tier }));
+    .map(({ destination, cabin, month, tier }) => ({ destination, cabin, month, tier }));
 }

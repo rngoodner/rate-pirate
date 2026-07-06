@@ -1,3 +1,4 @@
+import type { Cabin } from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
 import { activeDestinations, insertSnapshot } from '../db/repo.js';
 import { processRouteMonth } from '../deals/detect.js';
@@ -8,12 +9,19 @@ import { sqliteStamp } from '../scanner/scan.js';
 const DAY = 86_400_000;
 const MAX_SNAPSHOTS_PER_SCAN = 10;
 
+export interface SeedOptions {
+  days?: number;
+  homeAirport?: string;
+  cabins?: Cabin[];
+  log?: (line: string) => void;
+}
+
 /** Backfill deterministic synthetic price history (source='mock') and run deal
  *  detection over it, so the UI has a populated demo feed. Only touches
  *  mock-source rows — live data, if any, is untouched. No emails are sent. */
 export async function seedDemoHistory(
   db: Db,
-  opts: { days?: number; homeAirport?: string; log?: (line: string) => void } = {},
+  opts: SeedOptions = {},
 ): Promise<{ snapshots: number; days: number }> {
   // One big transaction: this runs at boot before anything else touches the DB,
   // and per-row commits make ~40k inserts crawl on spinning disks.
@@ -30,10 +38,11 @@ export async function seedDemoHistory(
 
 async function seedDays(
   db: Db,
-  opts: { days?: number; homeAirport?: string; log?: (line: string) => void },
+  opts: SeedOptions,
 ): Promise<{ snapshots: number; days: number }> {
   const days = opts.days ?? 14;
   const origin = opts.homeAirport ?? 'ABQ';
+  const cabins = opts.cabins ?? ['economy', 'premium_economy'];
   const destinations = activeDestinations(db);
   const start = Date.now() - days * DAY;
 
@@ -47,24 +56,31 @@ async function seedDays(
     const months = horizonMonths(virtualNow, 6);
     for (const dest of destinations) {
       for (const month of months) {
-        const quotes = await provider.monthQuotes({ origin, destination: dest.iata, month });
-        for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
-          insertSnapshot(db, {
-            origin: q.origin,
-            destination: q.destination,
-            travelMonth: month,
-            departDate: q.departDate,
-            returnDate: q.returnDate,
-            priceCents: q.priceCents,
-            stops: q.stops,
-            carrier: q.carrier,
-            source: 'mock',
-            capturedAt: asOf,
-          });
-          snapshots++;
-        }
-        if (quotes.length > 0) {
-          processRouteMonth(db, { source: 'mock', origin, destination: dest.iata, month }, asOf);
+        for (const cabin of cabins) {
+          const quotes = await provider.monthQuotes({ origin, destination: dest.iata, cabin, month });
+          for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
+            insertSnapshot(db, {
+              origin: q.origin,
+              destination: q.destination,
+              cabin: q.cabin,
+              travelMonth: month,
+              departDate: q.departDate,
+              returnDate: q.returnDate,
+              priceCents: q.priceCents,
+              stops: q.stops,
+              carrier: q.carrier,
+              source: 'mock',
+              capturedAt: asOf,
+            });
+            snapshots++;
+          }
+          if (quotes.length > 0) {
+            processRouteMonth(
+              db,
+              { source: 'mock', origin, destination: dest.iata, cabin, month },
+              asOf,
+            );
+          }
         }
       }
     }

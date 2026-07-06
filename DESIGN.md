@@ -80,19 +80,20 @@ CREATE TABLE price_snapshots (
   id           INTEGER PRIMARY KEY,
   origin       TEXT NOT NULL,           -- 'ABQ'
   destination  TEXT NOT NULL,
+  cabin        TEXT NOT NULL,           -- economy | premium_economy | business | first
   travel_month TEXT NOT NULL,           -- 'YYYY-MM' departure bucket
   depart_date  TEXT NOT NULL,
   return_date  TEXT NOT NULL,
   price_cents  INTEGER NOT NULL,        -- cheapest round-trip found, USD cents
   stops        INTEGER,
   carrier      TEXT,
-  source       TEXT NOT NULL,           -- travelpayouts | mock
+  source       TEXT NOT NULL,           -- google-flights | travelpayouts | mock
   captured_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX idx_snap_route_month ON price_snapshots(origin, destination, travel_month, captured_at);
+CREATE INDEX idx_snap_cabin ON price_snapshots(source, origin, destination, travel_month, cabin, captured_at);
 
-CREATE TABLE deals (
-  id INTEGER PRIMARY KEY,
+CREATE TABLE deals (              -- UNIQUE(source, origin, destination, cabin, travel_month)
+  id INTEGER PRIMARY KEY, cabin TEXT NOT NULL,
   origin TEXT NOT NULL, destination TEXT NOT NULL, travel_month TEXT NOT NULL,
   best_price_cents INTEGER NOT NULL, baseline_price_cents INTEGER NOT NULL,
   discount_pct REAL NOT NULL, score INTEGER NOT NULL,      -- 0–100
@@ -144,7 +145,7 @@ interface FlightPriceProvider {
 
 ## 5. Scanning & quota strategy
 
-- **Unit of work = route-month.** One API call returns the cheapest cached round-trip quotes (several date pairs) for a destination + departure month. Horizon: months +1..+6 → ~80 destinations × 6 = ~480 route-months. Each returned quote becomes a snapshot; the cheapest drives deal detection.
+- **Unit of work = route-month-cabin.** One page load returns quotes for a destination + departure month + **cabin** (economy / premium_economy / business / first). The scan universe is destinations × months (+1..+6) × the user's `monitoredCabins`; snapshots, baselines, and deals are all keyed by cabin so a Business deal is scored only against Business history. Only selected cabins are ever loaded, so monitoring more cabins multiplies the work and slows each cabin's refresh cadence proportionally (surfaced to the user in Settings). Default cabins: economy + premium_economy.
 - **Catalog**: ~80 destinations in `destinations.ts`, seeded on first migration. Tier 1 (~20) favorites (CUN, HNL, LHR, CDG, NRT, FCO, BCN, MEX...), Tier 2 (~40) broad coverage (NAP, IST, ATH, LIS, KEF, BKK...), Tier 3 (~20) long-tail (HYD, FAI, AKL, CPT...). Editable/toggleable in DB.
 - **Budget**: each call is a headless page load against Google, so the budget is a politeness cap: `daily_call_budget` setting, default **100** (4 batches of 25, each batch ~3 min with jittered gaps). Full ~560-combo universe cycles in ~6 days via the tier rotation; raise the budget if that proves too slow.
 - **Rotation** (`planner.ts`): priority = hours-since-last-snapshot × tier weight (T1×3, T2×1.5, T3×1) × near-month boost (+1..+3 higher). Each batch takes the top-N stalest within remaining budget — under the default budget everything gets scanned daily; the rotation only matters if the budget is lowered.
@@ -223,6 +224,7 @@ Three screens, styled after `ui-samples/`:
 
 1. **Google Flights scraping fragility** — Google can change page internals or challenge automated traffic. Mitigations: aria-labels are the most change-resistant surface; volume is tiny (~100 loads/day, jittered); transient-error retry built in; failures surface in `api_calls` and `/api/status`. If it ever breaks hard, the `FlightPriceProvider` seam keeps the blast radius to one file (this project has already survived two provider deaths: Amadeus decommissioned its self-service portal mid-build, and Travelpayouts turned out to have ~2% ABQ coverage).
 2. **One date pair per route-month** — the representative-dates heuristic (2nd Saturday, 7 nights) samples one itinerary shape; deals tied to other patterns (mid-week, long stays) go unseen. Acceptable v1 trade-off; the date-grid view (~49 pairs per page load) is the natural upgrade if wanted.
+3. **Premium-cabin scrape query unverified live.** The economy scrape path is unchanged and proven. For premium cabins the provider appends a natural-language phrase (`business class` / `first class` / `premium economy`) to the Google Flights query; this was built while Google was IP-throttling the dev machine, so it was verified only against the mock. First live scan should be spot-checked: confirm premium-cabin snapshots come back at plausibly higher prices than economy for the same route. If Google ignores the phrase, the fallback is the cabin URL parameter (the deep-link `tfs`/class code) — a one-file change in `google-flights.ts`.
 3. **Resend sender identity** — without a verified domain, Resend sends only from `onboarding@resend.dev` to the account owner's address. Fine for self-alerts; verify proton.me deliverability in Phase 3, else verify a domain.
 4. **Indicative prices** — cached quotes can differ from live checkout prices; the Google Flights link is the source of truth for purchase. Noted in the email footer.
 5. **Cold start** — first ~2 weeks are collect-only per route; StatusBanner and `/api/status` coverage % keep this legible.

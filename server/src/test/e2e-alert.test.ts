@@ -20,7 +20,12 @@ describe('alert pipeline simulation', () => {
   it('one alert on the injected drop, cooldown after, re-alert on deepening', async () => {
     const db = openDb(':memory:');
     seedDestinations(db, DESTINATION_CATALOG);
-    updateSettings(db, { dailyCallBudget: 600, alertEmail: 'me@example.com' });
+    // Economy-only so the injected drop yields exactly one deal per route-month.
+    updateSettings(db, {
+      dailyCallBudget: 600,
+      alertEmail: 'me@example.com',
+      monitoredCabins: ['economy'],
+    });
     const config = loadConfig({});
 
     let virtualNow = new Date(START);

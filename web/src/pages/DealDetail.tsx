@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { DealDetail as DealDetailType } from '@rate-pirate/shared';
+import { CABIN_LABELS, type DealDetail as DealDetailType } from '@rate-pirate/shared';
 import { api, monthLabel, shortDate } from '../api/client';
 import ScoreBadge from '../components/ScoreBadge';
 import PriceTag from '../components/PriceTag';
+import CabinBadge from '../components/CabinBadge';
 
 export default function DealDetail() {
   const { id } = useParams();
@@ -30,11 +31,15 @@ export default function DealDetail() {
     <div>
       <header className="bg-brand-pale px-4 pb-4 pt-6">
         <BackLink />
-        <h1 className="mt-2 text-2xl font-extrabold tracking-tight">
-          {deal.origin} <span className="font-normal text-gray-400">⇄</span> {deal.city}
-        </h1>
+        <div className="mt-2 flex items-center gap-2">
+          <h1 className="text-2xl font-extrabold tracking-tight">
+            {deal.origin} <span className="font-normal text-gray-400">⇄</span> {deal.city}
+          </h1>
+          <CabinBadge cabin={deal.cabin} />
+        </div>
         <p className="text-sm text-gray-600">
-          {deal.country} • {monthLabel(deal.travelMonth)} • <ScoreBadge score={deal.score} />
+          {deal.country} • {monthLabel(deal.travelMonth)} • {CABIN_LABELS[deal.cabin]} •{' '}
+          <ScoreBadge score={deal.score} />
         </p>
       </header>
 
