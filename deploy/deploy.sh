@@ -22,7 +22,10 @@ rsync -az --delete \
   ./ "$HOST:$DEST/"
 
 echo "==> install deps + restart"
-ssh "$HOST" "cd $DEST && npm ci --omit=dev && sudo systemctl restart rate-pirate"
+# -t: sudo needs a terminal to prompt for the password. To make deploys
+# non-interactive, add a sudoers drop-in on the host:
+#   echo 'ryan ALL=(root) NOPASSWD: /usr/bin/systemctl restart rate-pirate' | sudo tee /etc/sudoers.d/rate-pirate
+ssh -t "$HOST" "cd $DEST && npm ci --omit=dev && sudo systemctl restart rate-pirate"
 
 echo "==> smoke check"
 sleep 3
