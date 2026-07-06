@@ -95,6 +95,19 @@ export default function Settings() {
           />
         </Field>
 
+        <Link
+          to="/settings/destinations"
+          className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
+        >
+          <span>
+            <span className="mb-1 block text-sm text-gray-500">Destinations</span>
+            <span className="text-lg font-bold">Choose where to scan</span>
+          </span>
+          <span aria-hidden className="text-lg text-gray-400">
+            ›
+          </span>
+        </Link>
+
         <Field label="Alert recipients">
           <EmailRecipients
             value={settings.alertEmail}
@@ -162,19 +175,6 @@ export default function Settings() {
             less often. At least one is required.
           </p>
         </Field>
-
-        <Link
-          to="/settings/destinations"
-          className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
-        >
-          <span>
-            <span className="mb-1 block text-sm text-gray-500">Destinations</span>
-            <span className="text-lg font-bold">Choose where to scan</span>
-          </span>
-          <span aria-hidden className="text-lg text-gray-400">
-            ›
-          </span>
-        </Link>
 
         <Field label="Scanning">
           <label className="flex items-center justify-between">
