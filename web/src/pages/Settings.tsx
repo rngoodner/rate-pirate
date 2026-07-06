@@ -78,6 +78,20 @@ export default function Settings() {
             value={settings.alertEmail}
             onChange={(emails) => save({ alertEmail: emails.join(', ') })}
           />
+          <button
+            type="button"
+            className="mt-3 w-full rounded-xl border border-brand py-2 text-sm font-semibold text-brand active:bg-brand-pale"
+            onClick={async () => {
+              try {
+                const r = await api.testEmail();
+                setNotice(`Test email sent via ${r.via} to ${r.to}`);
+              } catch (e) {
+                setNotice((e as Error).message);
+              }
+            }}
+          >
+            Send test email
+          </button>
         </Field>
 
         <Field label={`Alert threshold — score ${settings.alertThreshold}+`}>
@@ -158,20 +172,6 @@ export default function Settings() {
         )}
 
         <Advanced settings={settings} setSettings={setSettings} save={save} />
-
-        <button
-          className="rounded-2xl bg-brand py-3.5 font-bold text-white active:opacity-80"
-          onClick={async () => {
-            try {
-              const r = await api.testEmail();
-              setNotice(`Test email sent via ${r.via} to ${r.to}`);
-            } catch (e) {
-              setNotice((e as Error).message);
-            }
-          }}
-        >
-          Send test email
-        </button>
 
         {notice && <p className="text-center text-sm text-gray-500">{notice}</p>}
       </div>
