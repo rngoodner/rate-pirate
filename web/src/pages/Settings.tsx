@@ -134,6 +134,11 @@ export default function Settings() {
               onChange={(e) => save({ scanEnabled: e.target.checked })}
             />
           </label>
+          <p className="mt-2 text-xs text-gray-500">
+            When on, Rate Pirate checks flight prices on a schedule and emails you when a great
+            deal appears. Turn off to pause all price checks and alerts without losing your saved
+            price history.
+          </p>
         </Field>
 
         {status && (
