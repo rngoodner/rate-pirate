@@ -15,8 +15,13 @@ import { ProviderError } from './types.js';
  *  from aria-labels — the most stable surface Google exposes (screen readers
  *  depend on it). One page load per route-month, politely throttled. */
 
-const MIN_CALL_GAP_MS = 4000;
-const CALL_JITTER_MS = 3000;
+// Inter-request pacing: 2–3.5s (jittered). Empirically tuned — a sustained
+// 30-request batch of varied routes held ~93–97% success with zero throttling
+// down to ~1s gaps; 2–3.5s keeps a comfortable margin while ~halving batch time
+// vs the old 4–7s. Google's throttle responds to sustained daily volume (capped
+// by daily_call_budget), not batch burst rate, so pacing is about politeness.
+const MIN_CALL_GAP_MS = 2000;
+const CALL_JITTER_MS = 1500;
 const BROWSER_IDLE_CLOSE_MS = 3 * 60_000;
 const RESULT_TIMEOUT_MS = 30_000;
 const MAX_QUOTES = 5;
