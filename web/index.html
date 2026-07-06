@@ -7,8 +7,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- iOS ignores SVG touch icons — must be a real PNG. -->
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- iOS touch icon: must be a real PNG. Versioned filename because iOS
+         caches touch icons (including failed lookups) per-URL and ignores
+         query strings; bump the name if the artwork ever changes. Copies also
+         exist at /apple-touch-icon(-precomposed).png — the default paths iOS
+         probes when it distrusts the link tag. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/touch-icon-180-v2.png" />
     <title>Rate Pirate</title>
   </head>
   <body>
