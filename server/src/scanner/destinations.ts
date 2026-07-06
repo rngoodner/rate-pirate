@@ -31,13 +31,17 @@ export const DESTINATION_CATALOG: CatalogEntry[] = [
   { iata: 'TYO', city: 'Tokyo', country: 'Japan', region: 'asia', tier: 1 },
   { iata: 'OSA', city: 'Osaka', country: 'Japan', region: 'asia', tier: 1 },
   { iata: 'SEL', city: 'Seoul', country: 'South Korea', region: 'asia', tier: 1 },
+  // Short-notice / impulse-friendly from ABQ (close, cheap, deal-volatile).
+  { iata: 'LAS', city: 'Las Vegas', country: 'United States', region: 'domestic', tier: 1 },
+  { iata: 'SAN', city: 'San Diego', country: 'United States', region: 'domestic', tier: 1 },
+  { iata: 'SFO', city: 'San Francisco', country: 'United States', region: 'domestic', tier: 1 },
+  { iata: 'PVR', city: 'Puerto Vallarta', country: 'Mexico', region: 'americas', tier: 1 },
 
   // --- Tier 2: broad coverage ---
   { iata: 'YVR', city: 'Vancouver', country: 'Canada', region: 'americas', tier: 2 },
   { iata: 'YYZ', city: 'Toronto', country: 'Canada', region: 'americas', tier: 2 },
   // Jalisco is state-level 3, but the advisory places no restrictions on
-  // Puerto Vallarta or the Guadalajara metro — kept per user's call.
-  { iata: 'PVR', city: 'Puerto Vallarta', country: 'Mexico', region: 'americas', tier: 2 },
+  // Guadalajara metro or Puerto Vallarta (tier 1) — both kept per user's call.
   { iata: 'GDL', city: 'Guadalajara', country: 'Mexico', region: 'americas', tier: 2 },
   { iata: 'SJO', city: 'San José', country: 'Costa Rica', region: 'americas', tier: 2 },
   { iata: 'LIR', city: 'Liberia', country: 'Costa Rica', region: 'americas', tier: 2 },
@@ -88,14 +92,11 @@ export const DESTINATION_CATALOG: CatalogEntry[] = [
   { iata: 'LIH', city: 'Kauai', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'KOA', city: 'Kona', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'MSY', city: 'New Orleans', country: 'United States', region: 'domestic', tier: 2 },
-  { iata: 'SFO', city: 'San Francisco', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'DBV', city: 'Dubrovnik', country: 'Croatia', region: 'europe', tier: 2 },
   { iata: 'PDL', city: 'Ponta Delgada', country: 'Portugal', region: 'europe', tier: 2 },
   { iata: 'MCO', city: 'Orlando', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'CHI', city: 'Chicago', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'WAS', city: 'Washington DC', country: 'United States', region: 'domestic', tier: 2 },
-  { iata: 'SAN', city: 'San Diego', country: 'United States', region: 'domestic', tier: 2 },
-  { iata: 'LAS', city: 'Las Vegas', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'PDX', city: 'Portland', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'AUS', city: 'Austin', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'SDQ', city: 'Santo Domingo', country: 'Dominican Republic', region: 'americas', tier: 2 },
@@ -103,8 +104,6 @@ export const DESTINATION_CATALOG: CatalogEntry[] = [
   { iata: 'SAO', city: 'São Paulo', country: 'Brazil', region: 'americas', tier: 2 },
   { iata: 'NCE', city: 'Nice', country: 'France', region: 'europe', tier: 2 },
   { iata: 'JTR', city: 'Santorini', country: 'Greece', region: 'europe', tier: 2 },
-  { iata: 'CNX', city: 'Chiang Mai', country: 'Thailand', region: 'asia', tier: 2 },
-  { iata: 'BNE', city: 'Brisbane', country: 'Australia', region: 'oceania', tier: 2 },
 
   // --- Tier 3: long-tail ---
   { iata: 'FAI', city: 'Fairbanks', country: 'United States', region: 'domestic', tier: 3 },
@@ -137,6 +136,7 @@ export const DESTINATION_CATALOG: CatalogEntry[] = [
   { iata: 'LVI', city: 'Victoria Falls', country: 'Zambia', region: 'africa', tier: 3 },
   { iata: 'ZQN', city: 'Queenstown', country: 'New Zealand', region: 'oceania', tier: 3 },
   { iata: 'CNS', city: 'Cairns', country: 'Australia', region: 'oceania', tier: 3 },
+  { iata: 'BNE', city: 'Brisbane', country: 'Australia', region: 'oceania', tier: 3 },
   { iata: 'SXM', city: 'St. Maarten', country: 'Sint Maarten', region: 'americas', tier: 3 },
   { iata: 'BGI', city: 'Barbados', country: 'Barbados', region: 'americas', tier: 3 },
   { iata: 'CUR', city: 'Curaçao', country: 'Curaçao', region: 'americas', tier: 3 },
@@ -152,6 +152,7 @@ export const DESTINATION_CATALOG: CatalogEntry[] = [
   { iata: 'SVQ', city: 'Seville', country: 'Spain', region: 'europe', tier: 3 },
   { iata: 'FLR', city: 'Florence', country: 'Italy', region: 'europe', tier: 3 },
   { iata: 'DAD', city: 'Da Nang', country: 'Vietnam', region: 'asia', tier: 3 },
+  { iata: 'CNX', city: 'Chiang Mai', country: 'Thailand', region: 'asia', tier: 3 },
   { iata: 'CGK', city: 'Jakarta', country: 'Indonesia', region: 'asia', tier: 3 },
   { iata: 'CTS', city: 'Sapporo', country: 'Japan', region: 'asia', tier: 3 },
   { iata: 'CTU', city: 'Chengdu', country: 'China', region: 'asia', tier: 3 },
