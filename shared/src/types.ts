@@ -11,12 +11,15 @@ export const CABIN_LABELS: Record<Cabin, string> = {
   first: 'First',
 };
 
-/** Natural-language phrase Google Flights understands for each cabin ('' = economy default). */
+/** Natural-language phrase appended to a Google Flights query for each cabin
+ *  ('' = economy default). The leading "in" matters: Google's query parser
+ *  applies the cabin filter for "… in business class" but ignores a bare
+ *  "… business class" (verified live — the bare form returns no results). */
 export const CABIN_QUERY_PHRASE: Record<Cabin, string> = {
   economy: '',
-  premium_economy: 'premium economy',
-  business: 'business class',
-  first: 'first class',
+  premium_economy: 'in premium economy',
+  business: 'in business class',
+  first: 'in first class',
 };
 
 export function isCabin(value: string): value is Cabin {
