@@ -8,6 +8,7 @@ import {
 } from '@rate-pirate/shared';
 import { api } from '../api/client';
 import { CABIN_CHIP_SELECTED_CLASS } from '../cabinStyle';
+import EmailRecipients from '../components/EmailRecipients';
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
@@ -64,21 +65,11 @@ export default function Settings() {
           />
         </Field>
 
-        <Field label="Alert email">
-          <input
-            className="w-full bg-transparent text-lg font-bold outline-none"
-            type="text"
-            inputMode="email"
-            placeholder="you@example.com, friend@example.com"
-            defaultValue={settings.alertEmail}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v !== settings.alertEmail) save({ alertEmail: v });
-            }}
+        <Field label="Alert recipients">
+          <EmailRecipients
+            value={settings.alertEmail}
+            onChange={(emails) => save({ alertEmail: emails.join(', ') })}
           />
-          <p className="mt-2 text-xs text-gray-500">
-            Separate multiple recipients with commas. All of them receive every alert.
-          </p>
         </Field>
 
         <Field label={`Alert threshold — score ${settings.alertThreshold}+`}>
