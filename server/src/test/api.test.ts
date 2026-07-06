@@ -240,6 +240,16 @@ describe('API routes', () => {
     expect(status.callsToday).toBe(0);
     expect(status.baselineCoverage).toBe(0);
     expect(status.activeDeals).toBe(0);
+    // Scanning is on by default → a concrete next-batch timestamp.
+    expect(status.nextBatchAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+    await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scanEnabled: false }),
+    });
+    const paused = (await (await app.request('/api/status')).json()) as ScanStatus;
+    expect(paused.nextBatchAt).toBeNull();
   });
 
   it('POST /api/test-email 503s without a sender and 400s without a recipient', async () => {

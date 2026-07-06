@@ -147,6 +147,8 @@ export interface ScanStatus {
    *  banner. True on a high failure share of today's calls, or on repeated
    *  batch-level errors (crashes, zero-price anomaly). */
   scansBroken: boolean;
+  /** SQLite UTC timestamp of the next scheduled batch; null while paused. */
+  nextBatchAt: string | null;
 }
 
 /** One row of the in-app activity/error log (Settings → Activity log). */

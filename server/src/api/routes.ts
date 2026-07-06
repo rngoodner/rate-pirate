@@ -28,7 +28,8 @@ import {
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
-import { runScanBatch } from '../scanner/scan.js';
+import { runScanBatch, sqliteStamp } from '../scanner/scan.js';
+import { nextBatchAt } from '../scanner/scheduler.js';
 import { alertHtml, alertSubject } from '../alerts/template.js';
 
 const settingsPatchSchema = z
@@ -204,6 +205,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       activeDeals: activeDealsWithPlace(db, deps.provider.name, settings.monitoredCabins).length,
       errorsToday: errors,
       scansBroken,
+      nextBatchAt: settings.scanEnabled ? sqliteStamp(nextBatchAt()) : null,
     };
     return c.json(status);
   });

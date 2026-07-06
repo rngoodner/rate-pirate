@@ -65,6 +65,15 @@ export function shortDate(iso: string): string {
   });
 }
 
+/** "in 45m" / "in 2h 5m" for a future SQLite UTC timestamp. */
+export function timeUntil(sqliteUtc: string): string {
+  const t = Date.parse(sqliteUtc.replace(' ', 'T') + 'Z');
+  const mins = Math.round((t - Date.now()) / 60_000);
+  if (mins <= 0) return 'now';
+  if (mins < 60) return `in ${mins}m`;
+  return `in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
 /** "5m ago" / "3h ago" / "Jul 4 21:10" for a SQLite UTC timestamp. */
 export function timeAgo(sqliteUtc: string): string {
   const t = Date.parse(sqliteUtc.replace(' ', 'T') + 'Z');

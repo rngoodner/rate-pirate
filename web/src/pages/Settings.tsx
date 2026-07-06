@@ -8,7 +8,7 @@ import {
   type ScanStatus,
   type Settings as SettingsType,
 } from '@rate-pirate/shared';
-import { api, timeAgo } from '../api/client';
+import { api, timeAgo, timeUntil } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
 import { CABIN_CHIP_SELECTED_CLASS } from '../cabinStyle';
 import EmailRecipients from '../components/EmailRecipients';
@@ -171,8 +171,11 @@ export default function Settings() {
             onBlur={() => save({ alertThreshold: settings.alertThreshold })}
           />
           <p className="text-xs text-gray-500">
-            Higher = fewer, better deals. Emails also require the price to be ≥
-            {Math.round(settings.alertMinDiscount * 100)}% below normal (set under Advanced).
+            Every deal gets a 0–100 score: mostly how rare the price is for that route (cheaper
+            than what share of recent history), plus how far below the typical price it sits,
+            nudged by Google’s own “prices are low/high” verdict. 85+ means roughly a top-10%
+            price — expect only a few emails a month. Lower it to hear about solid-but-common
+            deals, raise it toward 95 for only exceptional fares.
           </p>
         </Field>
 
@@ -189,9 +192,11 @@ export default function Settings() {
             />
           </label>
           <p className="mt-2 text-xs text-gray-500">
-            When on, Rate Pirate checks flight prices on a schedule and emails you when a great
-            deal appears. Turn off to pause all price checks and alerts without losing your saved
-            price history.
+            When on, Rate Pirate checks flight prices on a schedule (4 batches a day) and emails
+            you when a great deal appears — a score above your alert threshold and a price ≥
+            {Math.round(settings.alertMinDiscount * 100)}% below normal (set under Advanced).
+            Turn off to pause all price checks and alerts without losing your saved price
+            history.
           </p>
         </Field>
 
@@ -200,6 +205,7 @@ export default function Settings() {
             <p className="mb-1 font-bold text-gray-900">Status</p>
             <p>Provider: {status.provider}</p>
             <p>Last scan: {status.lastScanAt ? timeAgo(status.lastScanAt) : 'never'}</p>
+            <p>Next scan: {status.nextBatchAt ? timeUntil(status.nextBatchAt) : 'paused'}</p>
             <p>
               Calls today: {status.callsToday} / {status.dailyCallBudget}
             </p>

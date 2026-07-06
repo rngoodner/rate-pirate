@@ -1,6 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { horizonMonths, planBatch } from '../scanner/planner.js';
+import { nextBatchAt } from '../scanner/scheduler.js';
 import type { DestinationRow } from '../db/repo.js';
+
+describe('nextBatchAt', () => {
+  it('finds the next 06:10/11:10/17:10/22:10 America/Denver slot in UTC', () => {
+    // 07:00 MDT (13:00Z) → next is 11:10 MDT = 17:10Z same day
+    expect(nextBatchAt(new Date('2026-07-06T13:00:00Z')).toISOString()).toBe(
+      '2026-07-06T17:10:00.000Z',
+    );
+    // 23:00 MDT Jul 6 (05:00Z Jul 7) → next is 06:10 MDT Jul 7 = 12:10Z
+    expect(nextBatchAt(new Date('2026-07-07T05:00:00Z')).toISOString()).toBe(
+      '2026-07-07T12:10:00.000Z',
+    );
+    // Exactly 06:10 MDT → that slot has fired; next is 11:10 MDT
+    expect(nextBatchAt(new Date('2026-07-06T12:10:00Z')).toISOString()).toBe(
+      '2026-07-06T17:10:00.000Z',
+    );
+    // Winter (MST, UTC-7): 23:30 MST Dec 31 (06:30Z Jan 1) → 06:10 MST Jan 1 = 13:10Z
+    expect(nextBatchAt(new Date('2027-01-01T06:30:00Z')).toISOString()).toBe(
+      '2027-01-01T13:10:00.000Z',
+    );
+    // Month-end rollover: 22:30 MDT Jul 31 → 06:10 MDT Aug 1
+    expect(nextBatchAt(new Date('2026-08-01T04:30:00Z')).toISOString()).toBe(
+      '2026-08-01T12:10:00.000Z',
+    );
+  });
+});
 
 const now = new Date('2026-07-05T12:00:00Z');
 
