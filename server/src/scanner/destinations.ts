@@ -90,6 +90,7 @@ export const DESTINATION_CATALOG: CatalogEntry[] = [
   { iata: 'LIH', city: 'Kauai', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'KOA', city: 'Kona', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'MSY', city: 'New Orleans', country: 'United States', region: 'domestic', tier: 2 },
+  { iata: 'SFO', city: 'San Francisco', country: 'United States', region: 'domestic', tier: 2 },
   { iata: 'DBV', city: 'Dubrovnik', country: 'Croatia', region: 'europe', tier: 2 },
   { iata: 'PDL', city: 'Ponta Delgada', country: 'Portugal', region: 'europe', tier: 2 },
 
