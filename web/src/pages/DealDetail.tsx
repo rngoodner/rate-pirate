@@ -77,9 +77,6 @@ export default function DealDetail() {
                 </p>
               ) : null;
             })()}
-            <div className="mb-2 flex gap-2">
-              <Badge>Cheapest</Badge>
-            </div>
             <OptionRow
               departDate={best.departDate}
               returnDate={best.returnDate}
@@ -135,14 +132,6 @@ function BackLink() {
     >
       ←
     </Link>
-  );
-}
-
-function Badge({ children }: { children: string }) {
-  return (
-    <span className="rounded-lg bg-green-600 px-2.5 py-0.5 text-sm font-bold text-white">
-      {children}
-    </span>
   );
 }
 
