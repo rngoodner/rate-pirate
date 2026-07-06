@@ -24,6 +24,17 @@ export function createApp(deps?: AppDeps) {
   // Built SPA (production). In dev, Vite serves the frontend and proxies /api here.
   if (existsSync(webDist)) {
     const root = relative(process.cwd(), webDist);
+    // Vite content-hashes /assets/* filenames → cache forever. Everything else
+    // (index.html, manifest, icons) must revalidate, or phones keep serving a
+    // stale app shell after deploys (no header at all = heuristic caching).
+    app.use('*', async (c, next) => {
+      await next();
+      if (c.res.headers.has('cache-control') || c.req.path.startsWith('/api/')) return;
+      c.header(
+        'Cache-Control',
+        c.req.path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+      );
+    });
     app.use('*', serveStatic({ root }));
     app.use('*', serveStatic({ root, path: 'index.html' }));
   }
