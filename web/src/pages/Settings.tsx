@@ -171,11 +171,8 @@ export default function Settings() {
             onBlur={() => save({ alertThreshold: settings.alertThreshold })}
           />
           <p className="text-xs text-gray-500">
-            Every deal gets a 0–100 score: mostly how rare the price is for that route (cheaper
-            than what share of recent history), plus how far below the typical price it sits,
-            nudged by Google’s own “prices are low/high” verdict. 85+ means roughly a top-10%
-            price — expect only a few emails a month. Lower it to hear about solid-but-common
-            deals, raise it toward 95 for only exceptional fares.
+            The 0–100 score blends how rare a price is for the route with how far below typical
+            it sits. 85 ≈ top-10% prices, a few emails a month; 95+ = only exceptional fares.
           </p>
         </Field>
 
