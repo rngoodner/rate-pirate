@@ -13,13 +13,16 @@ import type { AppDeps } from '../app.js';
 import {
   activeDealsWithPlace,
   activeDestinations,
+  allDestinations,
   apiCallsToday,
+  dailyMinimaSeries,
   errorsToday,
   getDealWithPlace,
   lastApiCallAt,
   recentDateOptions,
   recentEvents,
   routeMonthsWithBaseline,
+  setDestinationActive,
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
@@ -99,6 +102,15 @@ export function apiRoutes(deps: AppDeps): Hono {
     );
     const detail: DealDetail = {
       ...toWireDeal(deal),
+      priceHistory: dailyMinimaSeries(
+        db,
+        deal.source,
+        deal.origin,
+        deal.destination,
+        deal.cabin,
+        deal.travelMonth,
+        60,
+      ),
       dateOptions: options.map((o) => ({
         ...o,
         nights: Math.round((Date.parse(o.returnDate) - Date.parse(o.departDate)) / 86_400_000),
@@ -121,10 +133,32 @@ export function apiRoutes(deps: AppDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = settingsPatchSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: 'invalid settings', issues: parsed.error.issues }, 400);
+      // Join field-level detail into `error` — it's what the UI displays.
+      const detail = parsed.error.issues
+        .map((i) => `${i.path.join('.') || 'settings'}: ${i.message}`)
+        .join('; ');
+      return c.json({ error: `invalid settings — ${detail}`, issues: parsed.error.issues }, 400);
     }
     updateSettings(db, parsed.data);
     return c.json(getSettings(db, config));
+  });
+
+  api.get('/destinations', (c) => c.json(allDestinations(db)));
+
+  api.put('/destinations/:iata', async (c) => {
+    const iata = c.req.param('iata').toUpperCase();
+    const body = (await c.req.json().catch(() => null)) as { active?: unknown } | null;
+    if (!body || typeof body.active !== 'boolean') {
+      return c.json({ error: 'body must be {"active": true|false}' }, 400);
+    }
+    // Keep at least one destination scannable.
+    if (!body.active && activeDestinations(db).length <= 1) {
+      return c.json({ error: 'keep at least one destination active' }, 400);
+    }
+    if (!setDestinationActive(db, iata, body.active)) {
+      return c.json({ error: 'destination not found' }, 404);
+    }
+    return c.json(allDestinations(db).find((d) => d.iata === iata));
   });
 
   api.get('/status', (c) => {
@@ -202,7 +236,9 @@ export function apiRoutes(deps: AppDeps): Hono {
       });
       return c.json({ sent: true, via: sender.name, to: recipients.join(', ') });
     } catch (err) {
-      return c.json({ sent: false, error: String(err) }, 502);
+      // Message only — full stacks/SMTP internals stay in the server log.
+      console.error('test email failed:', err);
+      return c.json({ sent: false, error: err instanceof Error ? err.message : 'send failed' }, 502);
     }
   });
 

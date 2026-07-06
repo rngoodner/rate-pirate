@@ -15,6 +15,11 @@ EnvironmentFile=/opt/rate-pirate/.env
 ExecStart=/usr/bin/npm -w server run start
 Restart=always
 RestartSec=5
+# Contain a ballooning headless Chromium (Google Flights pages are heavy) —
+# systemd kills the whole cgroup on breach and Restart=always recovers.
+MemoryHigh=1536M
+MemoryMax=2G
+NoNewPrivileges=yes
 
 [Install]
 WantedBy=multi-user.target

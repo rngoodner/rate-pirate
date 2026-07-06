@@ -57,7 +57,7 @@ export default function EmailRecipients({
                 type="button"
                 aria-label={`Remove ${email}`}
                 onClick={() => remove(email)}
-                className="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-400 active:bg-gray-200"
+                className="-my-2 ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-400 active:bg-gray-200"
               >
                 <span className="text-lg leading-none">×</span>
               </button>
@@ -82,6 +82,10 @@ export default function EmailRecipients({
               e.preventDefault();
               add();
             }
+          }}
+          onBlur={() => {
+            // A typed-but-unadded address must not be silently lost on navigation.
+            if (draft.trim()) add();
           }}
         />
         <button

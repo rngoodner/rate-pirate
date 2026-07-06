@@ -168,10 +168,11 @@ Two layers:
 - **`/opt/rate-pirate/.env`** — secrets and machine config (SMTP /
   Resend, provider choice, port, DB path). Edit, then `sudo systemctl restart rate-pirate`.
 - **Settings UI / API** — home airport, alert email (comma-separated for multiple),
-  alert threshold, cabins, scan on/off; under **Advanced**: daily call budget
-  (see "Adjust the daily call budget" above), alert minimum discount (default
-  20%), re-alert cooldown (default 7 days), and scan horizon (default 6 months).
-  All in the DB; no restart needed.
+  alert threshold, cabins, scan on/off, and which destinations to scan
+  (Settings → Destinations — deactivating expires its deals but keeps history);
+  under **Advanced**: daily call budget (see "Adjust the daily call budget"
+  above), alert minimum discount (default 20%), re-alert cooldown (default
+  7 days), and scan horizon (default 6 months). All in the DB; no restart needed.
 
 ### Demo mode (mock data)
 
@@ -251,6 +252,7 @@ sudo nginx -t && sudo systemctl reload nginx   # after editing the site config
 | No deals after 2+ weeks | Settings → Status: is `baselineCoverage` growing? Is `callsToday` > 0? If scanning is on and coverage is high, there simply may be no qualifying deals — lower the alert threshold to see more. |
 | No alert emails | Send a test email (above) and read the returned error. On Proton Bridge, check Bridge is running (`ss -tlnp \| grep 1025`). Remember alerts also require the minimum discount (default 20%, Settings → Advanced), not just a high score. |
 | Service won't start | `journalctl -u rate-pirate -n 50`. Common causes: missing `/opt/rate-pirate/.env`, or `node`/`chromium` missing after an OS reinstall (`apt install nodejs chromium`). |
+| Chromium won't launch (sandbox errors in the log) | Set `CHROME_NO_SANDBOX=true` in `.env` and restart — needed only on containers/unusual kernels; sandboxed is the safer default. |
 
 ## Local development (macOS)
 

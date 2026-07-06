@@ -7,8 +7,10 @@ import type { FlightPriceProvider } from './types.js';
 
 export function createProvider(config: Config, db: Db): FlightPriceProvider {
   if (config.PROVIDER === 'google-flights') {
-    return new GoogleFlightsProvider(findChrome(config.CHROME_PATH), (log) =>
-      recordApiCall(db, { provider: 'google-flights', ...log }),
+    return new GoogleFlightsProvider(
+      findChrome(config.CHROME_PATH),
+      (log) => recordApiCall(db, { provider: 'google-flights', ...log }),
+      { noSandbox: config.CHROME_NO_SANDBOX },
     );
   }
   return new SyntheticProvider();

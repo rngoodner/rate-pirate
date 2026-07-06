@@ -46,19 +46,32 @@ function smtpSender(config: Config): EmailSender {
   return {
     name: 'smtp',
     async send(msg) {
-      const mail = {
-        from: `Rate Pirate <${config.ALERT_EMAIL_FROM}>`,
-        to: msg.to,
-        subject: msg.subject,
-        html: msg.html,
-      };
-      try {
-        await transport.sendMail(mail);
-      } catch {
-        // One quick retry covers Bridge's transient post-idle hiccups.
-        await new Promise((r) => setTimeout(r, 5_000));
-        await transport.sendMail(mail);
+      // One message per recipient: addresses stay private from each other, and
+      // one rejected address can't sink delivery to the rest.
+      const failures: string[] = [];
+      for (const to of msg.to) {
+        const mail = {
+          from: `Rate Pirate <${config.ALERT_EMAIL_FROM}>`,
+          to,
+          subject: msg.subject,
+          html: msg.html,
+        };
+        try {
+          await transport.sendMail(mail);
+        } catch {
+          // One quick retry covers Bridge's transient post-idle hiccups.
+          await new Promise((r) => setTimeout(r, 5_000));
+          try {
+            await transport.sendMail(mail);
+          } catch (err) {
+            failures.push(`${to}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
+      if (failures.length === msg.to.length) {
+        throw new Error(`smtp: all sends failed — ${failures.join('; ')}`);
+      }
+      if (failures.length > 0) console.error(`smtp: partial send failure — ${failures.join('; ')}`);
     },
   };
 }
@@ -68,13 +81,20 @@ function resendSender(config: Config): EmailSender {
   return {
     name: 'resend',
     async send(msg) {
-      const { error } = await resend.emails.send({
-        from: `Rate Pirate <${config.ALERT_EMAIL_FROM}>`,
-        to: msg.to,
-        subject: msg.subject,
-        html: msg.html,
-      });
-      if (error) throw new Error(`resend: ${error.name} ${error.message}`);
+      const failures: string[] = [];
+      for (const to of msg.to) {
+        const { error } = await resend.emails.send({
+          from: `Rate Pirate <${config.ALERT_EMAIL_FROM}>`,
+          to,
+          subject: msg.subject,
+          html: msg.html,
+        });
+        if (error) failures.push(`${to}: ${error.name} ${error.message}`);
+      }
+      if (failures.length === msg.to.length && msg.to.length > 0) {
+        throw new Error(`resend: all sends failed — ${failures.join('; ')}`);
+      }
+      if (failures.length > 0) console.error(`resend: partial send failure — ${failures.join('; ')}`);
     },
   };
 }

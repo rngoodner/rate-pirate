@@ -6,6 +6,7 @@ import { useAutoRefresh } from '../useAutoRefresh';
 import ScoreBadge from '../components/ScoreBadge';
 import PriceTag from '../components/PriceTag';
 import CabinBadge from '../components/CabinBadge';
+import Sparkline from '../components/Sparkline';
 
 export default function DealDetail() {
   const { id } = useParams();
@@ -54,6 +55,8 @@ export default function DealDetail() {
       </header>
 
       <div className="flex flex-col gap-3 p-4">
+        <Sparkline points={deal.priceHistory} baselineCents={deal.baselinePriceCents} />
+
         {best ? (
           <a
             href={best.googleFlightsUrl}
@@ -62,7 +65,6 @@ export default function DealDetail() {
             className="block rounded-2xl border border-green-200 bg-green-50 p-4 active:bg-green-100"
           >
             <div className="mb-2 flex gap-2">
-              <Badge>Best</Badge>
               <Badge>Cheapest</Badge>
             </div>
             <OptionRow
@@ -109,7 +111,11 @@ export default function DealDetail() {
 
 function BackLink() {
   return (
-    <Link to="/" className="text-2xl leading-none text-gray-800">
+    <Link
+      to="/"
+      aria-label="Back to deals"
+      className="-m-2 inline-block p-2 text-2xl leading-none text-gray-800"
+    >
       ←
     </Link>
   );

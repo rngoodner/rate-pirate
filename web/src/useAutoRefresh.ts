@@ -15,10 +15,14 @@ export function useAutoRefresh(refresh: () => void, pollMs?: number) {
     };
     window.addEventListener('focus', run);
     document.addEventListener('visibilitychange', run);
+    // Safari restores back/forward navigations from the bfcache without firing
+    // focus/visibilitychange — pageshow covers it.
+    window.addEventListener('pageshow', run);
     const timer = pollMs ? setInterval(run, pollMs) : undefined;
     return () => {
       window.removeEventListener('focus', run);
       document.removeEventListener('visibilitychange', run);
+      window.removeEventListener('pageshow', run);
       clearInterval(timer);
     };
   }, [refresh, pollMs]);

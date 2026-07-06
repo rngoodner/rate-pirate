@@ -67,13 +67,10 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   const settings = getSettings(db, config);
 
   const asOf = sqliteStamp(now());
-  if (!settings.scanEnabled) {
-    logEvent(db, { level: 'info', scope: 'batch', message: 'batch skipped: scanning is off', at: asOf });
-    return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'scan_disabled' };
-  }
-
   const calRef = calendarRef(now(), virtualClock);
   const months = horizonMonths(calRef, settings.scanHorizonMonths);
+  // Expiry runs even while scanning is paused — a paused scanner must not
+  // leave past-month/departed deals sitting in the feed indefinitely.
   expireDealsBeforeMonth(db, calRef.toISOString().slice(0, 7));
   // Deals the scanner will never re-visit must not linger with stale prices.
   const zombies = expireDealsOutsideUniverse(db, {
@@ -90,6 +87,12 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       at: asOf,
     });
   }
+
+  if (!settings.scanEnabled) {
+    logEvent(db, { level: 'info', scope: 'batch', message: 'batch skipped: scanning is off', at: asOf });
+    return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'scan_disabled' };
+  }
+
   // Real clock: count against the LOCAL day (apiCallsToday's no-asOf branch);
   // the asOf branch exists for the simulator's virtual timestamps only.
   const used = apiCallsToday(db, provider.name, virtualClock ? asOf : undefined);
@@ -119,6 +122,19 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   let snapshots = 0;
   let failures = 0;
   for (const task of tasks) {
+    // Re-check the budget each task: the plan-time count doesn't include the
+    // calls this batch has since made (retries log an extra call each), so a
+    // transient-heavy batch could otherwise overshoot the daily cap.
+    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+    if (spent >= settings.dailyCallBudget) {
+      logEvent(db, {
+        level: 'info',
+        scope: 'batch',
+        message: `batch stopped early: daily budget spent (${spent}/${settings.dailyCallBudget})`,
+        at: sqliteStamp(now()),
+      });
+      break;
+    }
     const capturedAt = sqliteStamp(now());
     try {
       const quotes = await provider.monthQuotes({

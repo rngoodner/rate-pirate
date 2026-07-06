@@ -144,6 +144,23 @@ export function activeDestinations(db: Db): DestinationRow[] {
   ).map((r) => ({ ...r, active: r.active === 1 }));
 }
 
+export function allDestinations(db: Db): DestinationRow[] {
+  return (
+    db
+      .prepare(
+        'SELECT iata, city, country, region, tier, active FROM destinations ORDER BY city',
+      )
+      .all() as (Omit<DestinationRow, 'active'> & { active: number })[]
+  ).map((r) => ({ ...r, active: r.active === 1 }));
+}
+
+export function setDestinationActive(db: Db, iata: string, active: boolean): boolean {
+  return (
+    db.prepare('UPDATE destinations SET active = ? WHERE iata = ?').run(active ? 1 : 0, iata)
+      .changes > 0
+  );
+}
+
 export function getDestination(db: Db, iata: string): DestinationRow | null {
   const r = db
     .prepare('SELECT iata, city, country, region, tier, active FROM destinations WHERE iata = ?')
@@ -240,6 +257,10 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
        depart_date = excluded.depart_date,
        return_date = excluded.return_date,
        last_seen_at = excluded.last_seen_at,
+       -- A deal re-emerging after expiry (price recovered, then dropped again)
+       -- is a new episode: restart its first-seen clock.
+       first_seen_at = CASE WHEN deals.status = 'expired'
+                            THEN excluded.first_seen_at ELSE deals.first_seen_at END,
        status = 'active'`,
   ).run(
     d.source,
@@ -305,11 +326,12 @@ export function expireDealsBeforeMonth(db: Db, month: string): number {
 }
 
 /** Expire active deals the scanner will never re-evaluate: wrong origin (home
- *  airport changed), travel month beyond the horizon (horizon shrunk), or a
- *  departure date already in the past. Without this, such "zombie" deals sit
- *  in the feed showing stale prices indefinitely. Unmonitored cabins are NOT
- *  expired — the feed already hides them, and expiring would break the
- *  toggle-a-cabin-to-peek flow (and demo mode's instant cabin switching). */
+ *  airport changed), travel month beyond the horizon (horizon shrunk), a
+ *  departure date already in the past, or a destination the user deactivated.
+ *  Without this, such "zombie" deals sit in the feed showing stale prices
+ *  indefinitely. Unmonitored cabins are NOT expired — the feed already hides
+ *  them, and expiring would break the toggle-a-cabin-to-peek flow (and demo
+ *  mode's instant cabin switching). */
 export function expireDealsOutsideUniverse(
   db: Db,
   opts: { source: string; origin: string; lastMonth: string; today: string },
@@ -318,9 +340,35 @@ export function expireDealsOutsideUniverse(
     .prepare(
       `UPDATE deals SET status = 'expired'
        WHERE status = 'active' AND source = ?
-         AND (origin != ? OR travel_month > ? OR depart_date < ?)`,
+         AND (origin != ? OR travel_month > ? OR depart_date < ?
+           OR destination IN (SELECT iata FROM destinations WHERE active = 0))`,
     )
     .run(opts.source, opts.origin, opts.lastMonth, opts.today).changes;
+}
+
+/** Daily-minimum price series for one route-month-cabin — the deal page's
+ *  sparkline. Same daily-minima basis as the baseline computation. */
+export function dailyMinimaSeries(
+  db: Db,
+  source: string,
+  origin: string,
+  destination: string,
+  cabin: Cabin,
+  travelMonth: string,
+  days: number,
+): { date: string; priceCents: number }[] {
+  return db
+    .prepare(
+      `SELECT date(captured_at) AS date, MIN(price_cents) AS priceCents
+       FROM price_snapshots
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
+         AND captured_at >= datetime('now', '-' || ? || ' days')
+       GROUP BY date(captured_at) ORDER BY date`,
+    )
+    .all(source, origin, destination, cabin, travelMonth, days) as {
+    date: string;
+    priceCents: number;
+  }[];
 }
 
 export interface DealWithPlace extends DealRow {
@@ -384,7 +432,7 @@ export function recentDateOptions(
          FROM price_snapshots
          WHERE source = ? AND origin = ? AND destination = ? AND cabin = ?
            AND captured_at >= datetime('now', '-' || ? || ' days')
-           AND depart_date >= date('now')
+           AND depart_date >= date('now', 'localtime')
        )
        WHERE rn = 1 ORDER BY price_cents LIMIT ?`,
     )

@@ -75,6 +75,9 @@ describe('API routes', () => {
     expect(detail.dateOptions).toHaveLength(2);
     expect(detail.dateOptions[0]).toMatchObject({ priceCents: 65000, nights: 8 });
     expect(detail.dateOptions[0]!.googleFlightsUrl).toContain('google.com/travel/flights');
+    // Daily-minimum history rides along for the sparkline.
+    expect(detail.priceHistory.length).toBeGreaterThan(0);
+    expect(detail.priceHistory[0]).toMatchObject({ priceCents: expect.any(Number) });
     expect(await (await app.request('/api/deals/999')).status).toBe(404);
   });
 
@@ -167,6 +170,50 @@ describe('API routes', () => {
     expect(status.errorsToday).toBe(errs.length);
     // Every task failed → the server judges scanning broken (feed shows red).
     expect(status.scansBroken).toBe(true);
+  });
+
+  it('GET/PUT /api/destinations lists and toggles the scan catalog', async () => {
+    const { app } = makeApp();
+    const list = (await (await app.request('/api/destinations')).json()) as {
+      iata: string;
+      active: boolean;
+    }[];
+    expect(list.length).toBeGreaterThan(50);
+    expect(list.every((d) => d.active)).toBe(true);
+
+    const off = await app.request('/api/destinations/NAP', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ active: false }),
+    });
+    expect(off.status).toBe(200);
+    expect(((await off.json()) as { active: boolean }).active).toBe(false);
+
+    const missing = await app.request('/api/destinations/XXX', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ active: false }),
+    });
+    expect(missing.status).toBe(404);
+
+    const badBody = await app.request('/api/destinations/NAP', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ active: 'yes' }),
+    });
+    expect(badBody.status).toBe(400);
+  });
+
+  it('PUT /api/settings 400s carry field-level detail in error', async () => {
+    const { app } = makeApp();
+    const bad = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scanHorizonMonths: 12 }),
+    });
+    expect(bad.status).toBe(400);
+    const body = (await bad.json()) as { error: string };
+    expect(body.error).toContain('scanHorizonMonths');
   });
 
   it('GET /api/status reports provider, budget, and coverage', async () => {

@@ -87,6 +87,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
   constructor(
     private readonly chromePath: string,
     private readonly onCall?: (log: CallLog) => void,
+    private readonly opts: { noSandbox?: boolean } = {},
   ) {}
 
   async monthQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
@@ -210,7 +211,15 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
       .launch({
         executablePath: this.chromePath,
         headless: true,
-        args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--lang=en-US'],
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--lang=en-US',
+          // Chromium's /dev/shm usage is the classic headless-on-Debian crash
+          // when shm is small; use /tmp-backed shared memory instead.
+          '--disable-dev-shm-usage',
+          // Sandboxed by default; CHROME_NO_SANDBOX=true is the escape hatch.
+          ...(this.opts.noSandbox ? ['--no-sandbox'] : []),
+        ],
       })
       .then((b) => {
         this.browser = b;

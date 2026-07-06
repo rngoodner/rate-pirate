@@ -20,6 +20,9 @@ const envSchema = z.object({
   // 'google-flights' = live scraping; 'mock' = synthetic demo data.
   PROVIDER: z.enum(['google-flights', 'mock']).default('mock'),
   CHROME_PATH: z.string().optional(),
+  /** Escape hatch: set true if Chromium refuses to launch without --no-sandbox
+   *  (containers, exotic kernels). Sandboxed is the safer default. */
+  CHROME_NO_SANDBOX: envBool,
   // SMTP (e.g. Proton Bridge). When SMTP_HOST is set it takes precedence over Resend.
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),

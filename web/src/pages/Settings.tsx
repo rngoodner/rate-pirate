@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   CABINS,
   CABIN_LABELS,
@@ -84,6 +85,7 @@ export default function Settings() {
         <Field label="Home airport">
           <input
             className="w-full bg-transparent text-lg font-bold outline-none"
+            aria-label="Home airport IATA code"
             defaultValue={settings.homeAirport}
             maxLength={3}
             onBlur={(e) => {
@@ -118,6 +120,7 @@ export default function Settings() {
           <input
             className="w-full accent-brand"
             type="range"
+            aria-label="Alert threshold score"
             min={50}
             max={100}
             value={settings.alertThreshold}
@@ -160,6 +163,19 @@ export default function Settings() {
           </p>
         </Field>
 
+        <Link
+          to="/settings/destinations"
+          className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
+        >
+          <span>
+            <span className="mb-1 block text-sm text-gray-500">Destinations</span>
+            <span className="text-lg font-bold">Choose where to scan</span>
+          </span>
+          <span aria-hidden className="text-lg text-gray-400">
+            ›
+          </span>
+        </Link>
+
         <Field label="Scanning">
           <label className="flex items-center justify-between">
             <span className="text-lg font-bold">{settings.scanEnabled ? 'On' : 'Off'}</span>
@@ -183,7 +199,7 @@ export default function Settings() {
           <div className="rounded-2xl bg-white p-4 text-sm text-gray-600 shadow-sm">
             <p className="mb-1 font-bold text-gray-900">Status</p>
             <p>Provider: {status.provider}</p>
-            <p>Last scan: {status.lastScanAt ?? 'never'}</p>
+            <p>Last scan: {status.lastScanAt ? timeAgo(status.lastScanAt) : 'never'}</p>
             <p>
               Calls today: {status.callsToday} / {status.dailyCallBudget}
             </p>
@@ -196,7 +212,11 @@ export default function Settings() {
 
         <Advanced settings={settings} setSettings={setSettings} save={save} />
 
-        {notice && <p className="text-center text-sm text-gray-500">{notice}</p>}
+        {notice && (
+          <p aria-live="polite" className="text-center text-sm text-gray-500">
+            {notice}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -251,6 +271,7 @@ function ActivityLog({ events }: { events: AppEvent[] }) {
             <li key={e.id} className="border-b border-gray-50 py-2 last:border-b-0">
               <button
                 type="button"
+                aria-expanded={expandedId === e.id}
                 className="w-full text-left"
                 onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
               >
@@ -325,6 +346,7 @@ function Advanced({
               value={settings.dailyCallBudget}
               min={4}
               max={5000}
+              label="Daily call budget"
               onCommit={(n) => save({ dailyCallBudget: n })}
             />
           </AdvField>
@@ -336,6 +358,7 @@ function Advanced({
             <input
               className="w-full accent-brand"
               type="range"
+              aria-label="Alert minimum discount percent"
               min={5}
               max={50}
               value={Math.round(settings.alertMinDiscount * 100)}
@@ -355,6 +378,7 @@ function Advanced({
               value={settings.alertCooldownDays}
               min={1}
               max={30}
+              label="Re-alert cooldown in days"
               onCommit={(n) => save({ alertCooldownDays: n })}
             />
           </AdvField>
@@ -367,6 +391,7 @@ function Advanced({
               value={settings.scanHorizonMonths}
               min={2}
               max={9}
+              label="Scan horizon in months"
               onCommit={(n) => save({ scanHorizonMonths: n })}
             />
           </AdvField>
@@ -400,18 +425,24 @@ function NumberInput({
   value,
   min,
   max,
+  label,
   onCommit,
 }: {
   value: number;
   min: number;
   max: number;
+  label: string;
   onCommit: (n: number) => void;
 }) {
   return (
     <input
+      // Keyed by value: uncontrolled input remounts when the server-side value
+      // changes (a concurrent save response), so display can't go stale.
+      key={value}
       className="w-full bg-transparent text-lg font-bold outline-none"
       type="number"
       inputMode="numeric"
+      aria-label={label}
       defaultValue={value}
       min={min}
       max={max}

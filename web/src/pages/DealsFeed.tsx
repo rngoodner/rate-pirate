@@ -29,7 +29,8 @@ export default function DealsFeed() {
     api.settings().then(setSettings).catch(() => {});
   }, []);
   useEffect(load, [load]);
-  useAutoRefresh(load);
+  // Poll while open, too — a feed left on screen must not go stale forever.
+  useAutoRefresh(load, 60_000);
 
   return (
     <div>

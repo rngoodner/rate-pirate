@@ -87,8 +87,28 @@ export interface DealDateOption {
   googleFlightsUrl: string;
 }
 
+/** One point of the deal page's price-history sparkline (daily minimum). */
+export interface PricePoint {
+  /** 'YYYY-MM-DD' capture day. */
+  date: string;
+  priceCents: number;
+}
+
 export interface DealDetail extends Deal {
   dateOptions: DealDateOption[];
+  /** Daily-minimum price history for this route-month (last ~60 days). */
+  priceHistory: PricePoint[];
+}
+
+/** A scannable destination; `active` = included in the scan rotation. */
+export interface Destination {
+  iata: string;
+  city: string;
+  country: string;
+  region: string;
+  /** 1 = favorite (scanned most often) … 3 = long-tail. */
+  tier: number;
+  active: boolean;
 }
 
 export interface Settings {

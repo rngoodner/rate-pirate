@@ -1,12 +1,17 @@
-import type { AppEvent, Deal, DealDetail, ScanStatus, Settings } from '@rate-pirate/shared';
+import type { AppEvent, Deal, DealDetail, Destination, ScanStatus, Settings } from '@rate-pirate/shared';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
+  // Timeout keeps a hung fetch on flaky mobile from leaving "Loading…" forever.
+  const res = await fetch(path, { signal: AbortSignal.timeout(15_000), ...init });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
-  return res.json() as Promise<T>;
+  // An ok non-JSON response (captive portal, SPA fallback) must not surface a
+  // raw SyntaxError to the user.
+  return res.json().catch(() => {
+    throw new Error('unexpected non-JSON response — are you on the right network?');
+  }) as Promise<T>;
 }
 
 export const api = {
@@ -21,6 +26,13 @@ export const api = {
     }),
   status: () => request<ScanStatus>('/api/status'),
   events: () => request<AppEvent[]>('/api/events'),
+  destinations: () => request<Destination[]>('/api/destinations'),
+  setDestinationActive: (iata: string, active: boolean) =>
+    request<Destination>(`/api/destinations/${iata}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ active }),
+    }),
   testEmail: () =>
     request<{ sent: boolean; via: string; to: string }>('/api/test-email', { method: 'POST' }),
 };
