@@ -56,7 +56,7 @@ export default function Destinations() {
         </Link>
         <h1 className="mt-2 text-xl font-black tracking-tight">Destinations</h1>
         <p className="text-sm text-gray-600">
-          {destinations ? `${activeCount} of ${destinations.length} scanned` : '…'}
+          {destinations ? `${activeCount} of ${destinations.length} selected` : '…'}
         </p>
       </header>
 

@@ -111,7 +111,7 @@ export default function Settings() {
           <span>
             <span className={`block ${CARD_TITLE}`}>Destinations</span>
             <span className={CARD_DESC}>
-              {destCounts ? `${destCounts.active} of ${destCounts.total} scanned` : '…'}
+              {destCounts ? `${destCounts.active} of ${destCounts.total} selected` : '…'}
             </span>
           </span>
           <span aria-hidden className="text-lg text-gray-400">
