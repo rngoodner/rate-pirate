@@ -1,0 +1,27 @@
+# Proton Mail Bridge as a headless background service (runs as root, using
+# root's `pass`/GPG keychain set up during login). Install on your-server.local:
+#   which protonmail-bridge        # confirm the path, adjust ExecStart if different
+#   sudo cp deploy/protonmail-bridge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now protonmail-bridge
+#   journalctl -u protonmail-bridge -f      # watch for "SMTP" listening / keychain errors
+#   ss -tlnp | grep 1025                    # confirm the SMTP port is up
+#
+# The interactive `protonmail-bridge --cli` session must be exited before starting
+# this service (only one Bridge instance can bind the ports at a time).
+[Unit]
+Description=Proton Mail Bridge (headless)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=HOME=/root
+Environment=GNUPGHOME=/root/.gnupg
+Environment=PASSWORD_STORE_DIR=/root/.password-store
+ExecStart=/usr/bin/protonmail-bridge --noninteractive
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

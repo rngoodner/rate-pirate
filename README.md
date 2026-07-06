@@ -98,10 +98,16 @@ paid Proton plan. One-time setup on `your-server.local`:
    >>> info           # shows the SMTP host/port, username, and Bridge PASSWORD
    ```
    The Bridge **password** shown here is app-specific — not your Proton login. Copy it.
-3. **Keep it running.** Run Bridge as a service so it survives reboots, e.g. a user
-   systemd unit running `protonmail-bridge --noninteractive`. Verify it's listening:
+   (The first login also kicks off a mailbox sync, ETA up to ~1h — you can ignore it;
+   we only send mail, never read, so sending works before it finishes.)
+3. **Keep it running.** Exit the interactive CLI, then run Bridge as a background
+   service so it survives reboots — install `deploy/protonmail-bridge.service`:
    ```bash
-   ss -tlnp | grep 1025      # Bridge SMTP
+   which protonmail-bridge     # confirm path; adjust the unit's ExecStart if needed
+   sudo cp deploy/protonmail-bridge.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now protonmail-bridge
+   journalctl -u protonmail-bridge -f      # watch for keychain errors on first start
+   ss -tlnp | grep 1025                     # confirm Bridge SMTP is listening
    ```
 4. **Point the app at it** — in `/opt/rate-pirate/.env`:
    ```ini
