@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CABIN_LABELS, type Deal, type Settings } from '@rate-pirate/shared';
 import { api } from '../api/client';
+import { useAutoRefresh } from '../useAutoRefresh';
 import DealCard from '../components/DealCard';
 import StatusBanner from '../components/StatusBanner';
 
@@ -17,10 +18,12 @@ export default function DealsFeed() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api.deals().then(setDeals).catch((e: Error) => setError(e.message));
     api.settings().then(setSettings).catch(() => {});
   }, []);
+  useEffect(load, [load]);
+  useAutoRefresh(load);
 
   return (
     <div>

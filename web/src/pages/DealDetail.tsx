@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { DealDetail as DealDetailType } from '@rate-pirate/shared';
 import { api, monthLabel, shortDate } from '../api/client';
+import { useAutoRefresh } from '../useAutoRefresh';
 import ScoreBadge from '../components/ScoreBadge';
 import PriceTag from '../components/PriceTag';
 import CabinBadge from '../components/CabinBadge';
@@ -11,9 +12,11 @@ export default function DealDetail() {
   const [deal, setDeal] = useState<DealDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (id) api.deal(id).then(setDeal).catch((e: Error) => setError(e.message));
   }, [id]);
+  useEffect(load, [load]);
+  useAutoRefresh(load);
 
   if (error) {
     return (

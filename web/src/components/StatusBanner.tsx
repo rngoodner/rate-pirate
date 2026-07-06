@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ScanStatus } from '@rate-pirate/shared';
 import { api } from '../api/client';
+import { useAutoRefresh } from '../useAutoRefresh';
 
 /** Cold-start / scanning-state notice above the feed. */
 export default function StatusBanner() {
   const [status, setStatus] = useState<ScanStatus | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api.status().then(setStatus).catch(() => {});
   }, []);
+  useEffect(load, [load]);
+  useAutoRefresh(load, 60_000);
 
   if (!status || status.baselineCoverage >= 0.9) return null;
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   CABINS,
   CABIN_LABELS,
@@ -7,6 +7,7 @@ import {
   type Settings as SettingsType,
 } from '@rate-pirate/shared';
 import { api } from '../api/client';
+import { useAutoRefresh } from '../useAutoRefresh';
 import { CABIN_CHIP_SELECTED_CLASS } from '../cabinStyle';
 import EmailRecipients from '../components/EmailRecipients';
 
@@ -15,10 +16,17 @@ export default function Settings() {
   const [status, setStatus] = useState<ScanStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.settings().then(setSettings).catch(() => {});
+  const loadStatus = useCallback(() => {
     api.status().then(setStatus).catch(() => {});
   }, []);
+  useEffect(() => {
+    api.settings().then(setSettings).catch(() => {});
+    loadStatus();
+  }, [loadStatus]);
+  // Keep the status panel live (scan progress), but never re-pull settings on a
+  // timer — the settings state doubles as form state and a poll could clobber
+  // an in-flight edit.
+  useAutoRefresh(loadStatus, 60_000);
 
   async function save(patch: Partial<SettingsType>) {
     try {
