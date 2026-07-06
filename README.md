@@ -60,6 +60,27 @@ curl -s -X POST localhost:3789/api/scan
 Respects the daily budget; returns `{"planned":…,"scanned":…,"snapshots":…,"failures":…}`.
 Scheduled batches run at 06:10, 11:10, 17:10, 22:10 America/Denver.
 
+### Adjust the daily call budget
+
+The budget caps how many Google Flights page loads the scanner makes per day
+(resets at local midnight). It has no UI control — set it via the API; it takes
+effect at the next batch, no restart needed:
+
+```bash
+curl -s -X PUT -H 'content-type: application/json' \
+  -d '{"dailyCallBudget":300}' localhost:3789/api/settings
+```
+
+Sizing: the scan universe is `destinations × 6 months × monitored cabins` calls
+(94 × 6 × 2 cabins ≈ 1,128). A route-month only gets a **month baseline** with
+captures on 10 distinct days inside a 60-day window, so each unit needs a scan
+at least every ~6 days: `budget ≥ universe / 5` is a good floor (≈ 225 for two
+cabins, ≈ 115 for one). Below that, routes fall back to the coarser all-months
+route baseline and seasonality is blurred. Each call is a throttled headless-
+Chrome page load (4–7 s apart); ~300/day ≈ 8 minutes of scraping per batch.
+Stay well under ~500/day to keep Google friendly — if scans start failing
+consistently, lower it.
+
 ### Send a test email
 
 ```bash
@@ -141,7 +162,9 @@ Two layers:
 - **`/opt/rate-pirate/.env`** — secrets and machine config (SMTP /
   Resend, provider choice, port, DB path). Edit, then `sudo systemctl restart rate-pirate`.
 - **Settings UI / API** — home airport, alert email (comma-separated for multiple),
-  alert threshold, cabins, daily call budget, scan on/off. In the DB; no restart needed.
+  alert threshold, cabins, scan on/off. In the DB; no restart needed. The daily
+  call budget is also stored here but has no UI control — see "Adjust the daily
+  call budget" above.
 
 ### Demo mode (mock data)
 
@@ -204,7 +227,7 @@ sudo nginx -t && sudo systemctl reload nginx   # after editing the site config
 | Symptom | Check |
 |---|---|
 | App unreachable at :8081 | `systemctl status rate-pirate`, then `curl localhost:3789/api/health` on the server (isolates app vs nginx), then `sudo nginx -t` |
-| Scans failing | `journalctl -u rate-pirate --since today \| grep 'scan failed'`. Occasional `TransientPageError` is normal (Google hiccup — retried next batch). Many consecutive failures usually mean Google changed its page or is challenging the server's IP; try `chromium --version` and reduce `dailyCallBudget` in Settings. |
+| Scans failing | `journalctl -u rate-pirate --since today \| grep 'scan failed'`. Occasional `TransientPageError` is normal (Google hiccup — retried next batch). Many consecutive failures usually mean Google changed its page or is challenging the server's IP; try `chromium --version` and reduce the daily call budget (see "Adjust the daily call budget"). |
 | No deals after 2+ weeks | Settings → Status: is `baselineCoverage` growing? Is `callsToday` > 0? If scanning is on and coverage is high, there simply may be no qualifying deals — lower the alert threshold to see more. |
 | No alert emails | Send a test email (above) and read the returned error. On Proton Bridge, check Bridge is running (`ss -tlnp \| grep 1025`). Remember alerts also require a ≥20% discount, not just a high score. |
 | Service won't start | `journalctl -u rate-pirate -n 50`. Common causes: missing `/opt/rate-pirate/.env`, or `node`/`chromium` missing after an OS reinstall (`apt install nodejs chromium`). |
