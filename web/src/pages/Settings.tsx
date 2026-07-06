@@ -17,11 +17,16 @@ export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [status, setStatus] = useState<ScanStatus | null>(null);
   const [events, setEvents] = useState<AppEvent[]>([]);
+  const [destCounts, setDestCounts] = useState<{ active: number; total: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadStatus = useCallback(() => {
     api.status().then(setStatus).catch(() => {});
     api.events().then(setEvents).catch(() => {});
+    api
+      .destinations()
+      .then((d) => setDestCounts({ active: d.filter((x) => x.active).length, total: d.length }))
+      .catch(() => {});
   }, []);
   useEffect(() => {
     api.settings().then(setSettings).catch(() => {});
@@ -100,8 +105,10 @@ export default function Settings() {
           className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
         >
           <span>
-            <span className="mb-1 block text-sm text-gray-500">Destinations</span>
-            <span className="text-lg font-bold">Choose where to scan</span>
+            <span className="block text-lg font-bold">Destinations</span>
+            <span className="text-sm text-gray-500">
+              {destCounts ? `${destCounts.active} of ${destCounts.total} scanned` : '…'}
+            </span>
           </span>
           <span aria-hidden className="text-lg text-gray-400">
             ›
