@@ -36,8 +36,9 @@ export function isEmail(value: string): boolean {
 // base64url protobuf carrying route/dates/cabin exactly. Field numbers per
 // the community-reverse-engineered schema (fast-flights): Info{data=3 legs,
 // passengers=8, seat=9, trip=19}, FlightData{date=2, from=13, to=14},
-// Airport{airport=2}. (The scraper still uses `?q=` — proven reliable
-// headless, and its parser depends on that page variant.)
+// Airport{airport=2}. The scraper uses this same builder — the old `?q=` form
+// silently failed to apply the premium-economy cabin filter, collecting zero
+// data for that cabin.
 
 const SEAT_NUM: Record<Cabin, number> = { economy: 1, premium_economy: 2, business: 3, first: 4 };
 

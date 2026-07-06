@@ -53,8 +53,10 @@ let batchInFlight = false;
 
 /** A Date whose UTC fields equal the server's LOCAL calendar — month boundaries
  *  (deal expiry, scan horizon) must roll at local midnight, not UTC, which is
- *  5–6pm in America/Denver. Virtual clocks (simulator) are used as-is. */
-function calendarRef(d: Date, virtualClock: boolean): Date {
+ *  5–6pm in America/Denver. Relies on the process running in the home airport's
+ *  timezone (the systemd unit pins TZ=America/Denver; see deploy/). Virtual
+ *  clocks (simulator) are used as-is. */
+export function calendarRef(d: Date, virtualClock = false): Date {
   return virtualClock ? d : new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
 }
 

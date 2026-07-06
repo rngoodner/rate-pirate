@@ -29,7 +29,8 @@ import {
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
-import { runScanBatch, sqliteStamp } from '../scanner/scan.js';
+import { calendarRef, runScanBatch, sqliteStamp } from '../scanner/scan.js';
+import { horizonMonths } from '../scanner/planner.js';
 import { nextBatchAt } from '../scanner/scheduler.js';
 import { reevaluateDeals } from '../deals/detect.js';
 import { alertHtml, alertSubject } from '../alerts/template.js';
@@ -162,11 +163,18 @@ export function apiRoutes(deps: AppDeps): Hono {
     // A feed-floor change applies instantly: re-run detection over stored
     // snapshots (no scans, no alerts) instead of waiting a full scan cycle.
     if (after.dealMinDiscount !== before.dealMinDiscount) {
+      const cal = calendarRef(new Date());
+      const months = horizonMonths(cal, after.scanHorizonMonths);
       const { routeMonths } = reevaluateDeals(
         db,
         deps.provider.name,
         after.homeAirport,
         after.dealMinDiscount,
+        {
+          currentMonth: cal.toISOString().slice(0, 7),
+          lastMonth: months[months.length - 1]!,
+          today: cal.toISOString().slice(0, 10),
+        },
         sqliteStamp(new Date()),
       );
       const active = activeDealsWithPlace(db, deps.provider.name, after.monitoredCabins).length;

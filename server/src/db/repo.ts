@@ -131,6 +131,9 @@ export function seedDestinations(
   db: Db,
   catalog: Omit<DestinationRow, 'active'>[],
 ): void {
+  // Guard: an empty catalog would make `NOT IN ()` match every row and wipe the
+  // whole table (and expire all deals). No legitimate caller passes empty.
+  if (catalog.length === 0) return;
   const insert = db.prepare(
     'INSERT OR IGNORE INTO destinations (iata, city, country, region, tier) VALUES (?, ?, ?, ?, ?)',
   );

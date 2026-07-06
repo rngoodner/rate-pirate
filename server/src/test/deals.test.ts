@@ -3,7 +3,13 @@ import { computeBaseline, median } from '../deals/baseline.js';
 import { scoreDeal } from '../deals/score.js';
 import { processRouteMonth, reevaluateDeals } from '../deals/detect.js';
 import { openDb } from '../db/db.js';
-import { getDealByRouteMonth, insertSnapshot, type SnapshotRow } from '../db/repo.js';
+import {
+  getDealByRouteMonth,
+  insertSnapshot,
+  upsertDeal,
+  upsertPriceInsights,
+  type SnapshotRow,
+} from '../db/repo.js';
 
 function rows(prices: number[], startDay = 1, month = '2026-06'): SnapshotRow[] {
   return prices.map((priceCents, i) => ({
@@ -151,6 +157,27 @@ describe('processRouteMonth', () => {
     }
   }
 
+  it('ignores a stale google verdict (different scan) but applies a same-scan one', () => {
+    const db = openDb(':memory:');
+    seedHistory(db, 100000);
+    const snap = {
+      origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, travelMonth: '2026-08',
+      departDate: '2026-08-10', returnDate: '2026-08-17', priceCents: 65000, stops: 1,
+      carrier: 'AA', source: 'mock',
+    };
+    insertSnapshot(db, { ...snap, capturedAt: '2026-06-20 08:00:00' });
+    const key = { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, travelMonth: '2026-08' };
+
+    // Insight captured in a DIFFERENT (earlier) scan → verdict must be ignored.
+    upsertPriceInsights(db, key, { level: 'low', history: null, capturedAt: '2026-06-01 08:00:00' });
+    const stale = processRouteMonth(db, route, '2026-06-20 08:00:00')!;
+
+    // Same insight, now stamped to THIS scan → +8 nudge applies.
+    upsertPriceInsights(db, key, { level: 'low', history: null, capturedAt: '2026-06-20 08:00:00' });
+    const fresh = processRouteMonth(db, route, '2026-06-20 08:00:00')!;
+    expect(fresh.score).toBe(stale.score + 8);
+  });
+
   it('creates a deal when the latest price is well below baseline', () => {
     const db = openDb(':memory:');
     seedHistory(db, 100000);
@@ -184,13 +211,34 @@ describe('processRouteMonth', () => {
     );
 
     // reevaluateDeals sweeps the whole feed from stored snapshots — lowering
-    // the floor resurrects the deal instantly, no new scan required.
-    reevaluateDeals(db, 'mock', 'ABQ', 0.05, '2026-06-20 10:00:00');
+    // the floor resurrects the deal instantly, no new scan required. Window
+    // spans the deal's Aug travel month (asOf is a virtual June).
+    const win = { currentMonth: '2026-06', lastMonth: '2026-12', today: '2026-06-20' };
+    reevaluateDeals(db, 'mock', 'ABQ', 0.05, win, '2026-06-20 10:00:00');
     expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
       'active',
     );
-    reevaluateDeals(db, 'mock', 'ABQ', 0.4, '2026-06-20 11:00:00');
+    reevaluateDeals(db, 'mock', 'ABQ', 0.4, win, '2026-06-20 11:00:00');
     expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
+      'expired',
+    );
+
+    // A past-travel-month deal (snapshots persist ~180 days, so its history is
+    // still present) must be EXPIRED by a re-evaluate, never revived.
+    upsertDeal(db, {
+      source: 'mock', origin: 'ABQ', destination: 'CUN', cabin: 'economy', travelMonth: '2026-05',
+      bestPriceCents: 60000, baselinePriceCents: 100000, discountPct: 0.4, score: 95,
+      departDate: '2026-05-10', returnDate: '2026-05-17', seenAt: '2026-05-15 12:00:00',
+    });
+    for (let day = 1; day <= 12; day++) {
+      insertSnapshot(db, {
+        origin: 'ABQ', destination: 'CUN', cabin: 'economy', travelMonth: '2026-05',
+        departDate: '2026-05-10', returnDate: '2026-05-17', priceCents: 60000, stops: 1,
+        carrier: 'KL', source: 'mock', capturedAt: `2026-05-${String(day).padStart(2, '0')} 12:00:00`,
+      });
+    }
+    reevaluateDeals(db, 'mock', 'ABQ', 0.05, win, '2026-06-20 12:00:00');
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'CUN', 'economy', '2026-05')!.status).toBe(
       'expired',
     );
   });

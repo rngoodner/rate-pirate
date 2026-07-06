@@ -12,6 +12,11 @@ Type=simple
 User=ryan
 WorkingDirectory=/opt/rate-pirate
 EnvironmentFile=/opt/rate-pirate/.env
+# Pin the home airport's timezone: the scheduler hardcodes America/Denver, and
+# the daily-budget day + month-rollover logic use the process-local calendar —
+# they must agree. Without this a host defaulting to UTC would reset the budget
+# day at ~5-6pm local, splitting the daily cap across a local day.
+Environment=TZ=America/Denver
 ExecStart=/usr/bin/npm -w server run start
 Restart=always
 RestartSec=5

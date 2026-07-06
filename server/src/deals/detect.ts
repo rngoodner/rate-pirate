@@ -2,6 +2,8 @@ import type { Cabin } from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
 import {
   expireDeal,
+  expireDealsBeforeMonth,
+  expireDealsOutsideUniverse,
   getDealByRouteMonth,
   getPriceInsights,
   latestCaptureByRouteMonth,
@@ -66,8 +68,12 @@ export function processRouteMonth(
       baseline.kind === 'google'
         ? (insights?.series.map((p) => p.priceCents) ?? [])
         : dailyMinima(routeHistory),
-    // Corroboration from the scan page's own verdict (same scan as `current`).
-    googleLevel: insights?.level ?? null,
+    // Corroboration from the scan page's own verdict — ONLY when it came from
+    // the same scan as the current price. Google often drops the price badge on
+    // mature routes, leaving a weeks-old level in the row; applying that stale
+    // verdict would nudge the score indefinitely (a stale 'low' could inflate a
+    // deal across the alert threshold).
+    googleLevel: insights?.capturedAt === current.capturedAt ? insights.level : null,
   });
 
   if (discountPct > minDiscount) {
@@ -93,22 +99,36 @@ export function processRouteMonth(
   return null;
 }
 
-/** Re-run detection for every route-month that has snapshots — purely stored
- *  data, zero provider calls. Used when the feed floor changes so the feed
- *  reflects it immediately: raising expires now-too-shallow deals, lowering
- *  resurrects qualifying ones from the latest scans. Alerting is NOT part of
- *  this path (a settings change must never send email). */
+/** Re-run detection for every current-or-future route-month that has snapshots
+ *  — purely stored data, zero provider calls. Used when the feed floor changes
+ *  so the feed reflects it immediately: raising expires now-too-shallow deals,
+ *  lowering resurrects qualifying ones from the latest scans. Alerting is NOT
+ *  part of this path (a settings change must never send email).
+ *
+ *  Mirrors the scan path's expiry so it can't revive a dead deal: snapshots
+ *  persist ~180 days by capture date, long after a travel month passes, so
+ *  past/out-of-horizon route-months are skipped and the same expiry sweep runs
+ *  (departed dates, past months, out-of-universe). */
 export function reevaluateDeals(
   db: Db,
   source: string,
   origin: string,
   minDiscount: number,
+  window: { currentMonth: string; lastMonth: string; today: string },
   asOf: string,
 ): { routeMonths: number } {
+  expireDealsBeforeMonth(db, window.currentMonth);
   const latest = latestCaptureByRouteMonth(db, source, origin);
+  let routeMonths = 0;
   for (const key of latest.keys()) {
     const [destination, month, cabin] = key.split('|') as [string, string, Cabin];
+    // 'YYYY-MM' compares lexically. Skip past and beyond-horizon months so a
+    // stale snapshot can't re-activate a deal the scanner would never re-visit.
+    if (month < window.currentMonth || month > window.lastMonth) continue;
     processRouteMonth(db, { source, origin, destination, cabin, month }, asOf, { minDiscount });
+    routeMonths++;
   }
-  return { routeMonths: latest.size };
+  // Catch current-month deals whose cheapest date-pair has already departed.
+  expireDealsOutsideUniverse(db, { source, origin, lastMonth: window.lastMonth, today: window.today });
+  return { routeMonths };
 }
