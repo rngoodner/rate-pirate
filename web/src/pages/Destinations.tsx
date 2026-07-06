@@ -71,6 +71,11 @@ export default function Destinations() {
           onChange={(e) => setQuery(e.target.value)}
         />
 
+        <p className="px-1 text-xs text-gray-400">
+          The tag on each row sets how often it’s scanned: <b>favorite</b> most often, then{' '}
+          <b>regular</b>, then <b>long-tail</b>.
+        </p>
+
         {notice && <p className="text-center text-sm text-red-600">{notice}</p>}
         {shown === null && <p className="mt-8 text-center text-gray-400">Loading…</p>}
         {shown?.length === 0 && (
