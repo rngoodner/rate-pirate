@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeBaseline, median } from '../deals/baseline.js';
 import { scoreDeal } from '../deals/score.js';
-import { processRouteMonth } from '../deals/detect.js';
+import { processRouteMonth, reevaluateDeals } from '../deals/detect.js';
 import { openDb } from '../db/db.js';
 import { getDealByRouteMonth, insertSnapshot, type SnapshotRow } from '../db/repo.js';
 
@@ -179,6 +179,17 @@ describe('processRouteMonth', () => {
     // A custom feed floor above the discount suppresses (and expires) the deal.
     const suppressed = processRouteMonth(db, route, '2026-06-20 09:00:00', { minDiscount: 0.4 });
     expect(suppressed).toBeNull();
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
+      'expired',
+    );
+
+    // reevaluateDeals sweeps the whole feed from stored snapshots — lowering
+    // the floor resurrects the deal instantly, no new scan required.
+    reevaluateDeals(db, 'mock', 'ABQ', 0.05, '2026-06-20 10:00:00');
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
+      'active',
+    );
+    reevaluateDeals(db, 'mock', 'ABQ', 0.4, '2026-06-20 11:00:00');
     expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
       'expired',
     );

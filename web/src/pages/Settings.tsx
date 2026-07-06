@@ -439,7 +439,7 @@ function Advanced({
 
           <AdvField
             label={`Deal feed floor — ${Math.round(settings.dealMinDiscount * 100)}%`}
-            hint="Prices at least this far below typical show as deals on the home page (emails have their own bar above). Deals expire when the price recovers past it."
+            hint="Prices at least this far below typical show as deals on the home page (emails have their own bar above). Changes apply to the whole feed immediately."
           >
             <input
               className="w-full accent-brand"

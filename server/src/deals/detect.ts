@@ -4,6 +4,7 @@ import {
   expireDeal,
   getDealByRouteMonth,
   getPriceInsights,
+  latestCaptureByRouteMonth,
   latestScanSnapshots,
   snapshotsForRoute,
   snapshotsForRouteMonth,
@@ -90,4 +91,24 @@ export function processRouteMonth(
   // Price recovered: retire any active deal for this route-month.
   if (existing && existing.status === 'active') expireDeal(db, existing.id);
   return null;
+}
+
+/** Re-run detection for every route-month that has snapshots — purely stored
+ *  data, zero provider calls. Used when the feed floor changes so the feed
+ *  reflects it immediately: raising expires now-too-shallow deals, lowering
+ *  resurrects qualifying ones from the latest scans. Alerting is NOT part of
+ *  this path (a settings change must never send email). */
+export function reevaluateDeals(
+  db: Db,
+  source: string,
+  origin: string,
+  minDiscount: number,
+  asOf: string,
+): { routeMonths: number } {
+  const latest = latestCaptureByRouteMonth(db, source, origin);
+  for (const key of latest.keys()) {
+    const [destination, month, cabin] = key.split('|') as [string, string, Cabin];
+    processRouteMonth(db, { source, origin, destination, cabin, month }, asOf, { minDiscount });
+  }
+  return { routeMonths: latest.size };
 }

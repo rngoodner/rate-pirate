@@ -21,6 +21,7 @@ import {
   getDealWithPlace,
   getPriceInsights,
   lastApiCallAt,
+  logEvent,
   recentDateOptions,
   recentEvents,
   routeMonthsWithBaseline,
@@ -30,6 +31,7 @@ import {
 import { getSettings, updateSettings } from '../db/settings.js';
 import { runScanBatch, sqliteStamp } from '../scanner/scan.js';
 import { nextBatchAt } from '../scanner/scheduler.js';
+import { reevaluateDeals } from '../deals/detect.js';
 import { alertHtml, alertSubject } from '../alerts/template.js';
 
 const settingsPatchSchema = z
@@ -154,8 +156,27 @@ export function apiRoutes(deps: AppDeps): Hono {
         .join('; ');
       return c.json({ error: `invalid settings — ${detail}`, issues: parsed.error.issues }, 400);
     }
+    const before = getSettings(db, config);
     updateSettings(db, parsed.data);
-    return c.json(getSettings(db, config));
+    const after = getSettings(db, config);
+    // A feed-floor change applies instantly: re-run detection over stored
+    // snapshots (no scans, no alerts) instead of waiting a full scan cycle.
+    if (after.dealMinDiscount !== before.dealMinDiscount) {
+      const { routeMonths } = reevaluateDeals(
+        db,
+        deps.provider.name,
+        after.homeAirport,
+        after.dealMinDiscount,
+        sqliteStamp(new Date()),
+      );
+      const active = activeDealsWithPlace(db, deps.provider.name, after.monitoredCabins).length;
+      logEvent(db, {
+        level: 'info',
+        scope: 'system',
+        message: `feed floor changed to ${Math.round(after.dealMinDiscount * 100)}% — re-evaluated ${routeMonths} route-months, ${active} active deal${active === 1 ? '' : 's'}`,
+      });
+    }
+    return c.json(after);
   });
 
   api.get('/destinations', (c) => c.json(allDestinations(db)));
