@@ -440,6 +440,61 @@ export function getPriceInsights(
   return { level: row.level, medianCents: row.medianCents, series, capturedAt: row.capturedAt };
 }
 
+// --- Scan state (dormant-pair skipping) ---
+
+/** Record a scan attempt: resets the empty streak when fares were seen, else
+ *  grows it. Drives dormant-pair skipping so cabins/routes with no fares stop
+ *  consuming scrapes. */
+export function recordScanOutcome(
+  db: Db,
+  key: { source: string; origin: string; destination: string; cabin: Cabin; travelMonth: string },
+  hadQuotes: boolean,
+  at: string,
+): void {
+  db.prepare(
+    `INSERT INTO scan_state (source, origin, destination, cabin, travel_month, last_scan_at, consecutive_empty)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(source, origin, destination, cabin, travel_month) DO UPDATE SET
+       last_scan_at = excluded.last_scan_at,
+       consecutive_empty = CASE WHEN ? THEN 0 ELSE scan_state.consecutive_empty + 1 END`,
+  ).run(
+    key.source,
+    key.origin,
+    key.destination,
+    key.cabin,
+    key.travelMonth,
+    at,
+    hadQuotes ? 0 : 1,
+    hadQuotes ? 1 : 0,
+  );
+}
+
+/** Route-month-cabins to skip this batch: enough consecutive empty scans to
+ *  look structurally fare-less, AND probed recently enough that we're still
+ *  resting them (a stale dormant pair is allowed through to re-probe, so newly
+ *  added service or a seasonal cabin gets picked back up). Keys 'dest|month|cabin'. */
+export function dormantRouteMonths(
+  db: Db,
+  source: string,
+  origin: string,
+  minEmpty: number,
+  reprobeAfterDays: number,
+  asOf: string,
+): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT destination, travel_month AS travelMonth, cabin FROM scan_state
+       WHERE source = ? AND origin = ? AND consecutive_empty >= ?
+         AND last_scan_at >= datetime(?, '-' || ? || ' days')`,
+    )
+    .all(source, origin, minEmpty, asOf, reprobeAfterDays) as {
+    destination: string;
+    travelMonth: string;
+    cabin: string;
+  }[];
+  return new Set(rows.map((r) => `${r.destination}|${r.travelMonth}|${r.cabin}`));
+}
+
 /** Distinct capture days our own history has for a route-month — drives both
  *  the wantHistory decision and the observed-vs-google sparkline choice. */
 export function captureDaysForRouteMonth(
@@ -736,6 +791,7 @@ export function purgeMockData(db: Db): number {
     const snaps = db.prepare(`DELETE FROM price_snapshots WHERE source = 'mock'`).run().changes;
     db.prepare(`DELETE FROM api_calls WHERE provider = 'mock'`).run();
     db.prepare(`DELETE FROM price_insights WHERE source = 'mock'`).run();
+    db.prepare(`DELETE FROM scan_state WHERE source = 'mock'`).run();
     return deals + snaps;
   })();
 }

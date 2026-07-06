@@ -4,15 +4,22 @@ import {
   activeDestinations,
   apiCallsToday,
   captureDaysForRouteMonth,
+  dormantRouteMonths,
   expireDealsBeforeMonth,
   expireDealsOutsideUniverse,
   insertSnapshot,
   latestCaptureByRouteMonth,
   logEvent,
   recordApiCall,
+  recordScanOutcome,
   upsertPriceInsights,
 } from '../db/repo.js';
 import { BASELINE_WINDOWS } from '../deals/baseline.js';
+
+/** A route-month-cabin resting after this many consecutive empty scans… */
+const DORMANT_AFTER_EMPTY = 5;
+/** …re-probed this often so new/seasonal service is picked back up. */
+const REPROBE_AFTER_DAYS = 14;
 import { getSettings } from '../db/settings.js';
 import type { FlightPriceProvider, RoundTripQuote } from '../providers/types.js';
 import { horizonMonths, planBatch, type RouteMonthTask } from './planner.js';
@@ -117,6 +124,14 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
     latestCapture: latestCaptureByRouteMonth(db, provider.name, settings.homeAirport),
     now: now(),
     monthsNow: calRef,
+    dormant: dormantRouteMonths(
+      db,
+      provider.name,
+      settings.homeAirport,
+      DORMANT_AFTER_EMPTY,
+      REPROBE_AFTER_DAYS,
+      asOf,
+    ),
     horizon: settings.scanHorizonMonths,
     limit,
   });
@@ -187,6 +202,19 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
         });
       }
       scanned++;
+      // Track empty streaks so reliably fare-less pairs go dormant (see planner).
+      recordScanOutcome(
+        db,
+        {
+          source: provider.name,
+          origin: settings.homeAirport,
+          destination: task.destination,
+          cabin: task.cabin,
+          travelMonth: task.month,
+        },
+        quotes.length > 0,
+        capturedAt,
+      );
       const tally = byCabin.get(task.cabin) ?? { scanned: 0, snapshots: 0 };
       tally.scanned++;
       tally.snapshots += Math.min(quotes.length, MAX_SNAPSHOTS_PER_SCAN);

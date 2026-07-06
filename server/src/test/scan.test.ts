@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
-import { recentEvents, seedDestinations } from '../db/repo.js';
+import { dormantRouteMonths, recentEvents, seedDestinations } from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
 import { DESTINATION_CATALOG } from '../scanner/destinations.js';
 import { SyntheticProvider } from '../providers/mock.js';
-import { runScanBatch, type ScanDeps } from '../scanner/scan.js';
-import type { FlightPriceProvider } from '../providers/types.js';
+import { runScanBatch, sqliteStamp, type ScanDeps } from '../scanner/scan.js';
+import type { FlightPriceProvider, MonthQuery } from '../providers/types.js';
 
 function makeDeps(provider?: FlightPriceProvider): ScanDeps {
   const db = openDb(':memory:');
@@ -56,6 +56,39 @@ describe('runScanBatch guards', () => {
     expect(anomaly!.scope).toBe('batch');
     expect(anomaly!.message).toContain('zero prices');
   });
+
+  it('puts a reliably-empty pair to sleep after 5 empty scans, then re-probes', async () => {
+    // One destination returns fares only for economy; business is always empty.
+    const db = openDb(':memory:');
+    seedDestinations(db, [
+      { iata: 'CUN', city: 'Cancún', country: 'Mexico', region: 'americas', tier: 1 },
+    ]);
+    updateSettings(db, { dailyCallBudget: 2000, monitoredCabins: ['economy', 'business'] });
+    const inner = new SyntheticProvider({ seed: 7 });
+    let virtualNow = new Date('2026-07-05T06:00:00Z');
+    const provider: FlightPriceProvider = {
+      name: 'mock',
+      monthQuotes: async (q: MonthQuery) =>
+        q.cabin === 'business' ? { quotes: [], insights: null } : inner.monthQuotes(q),
+    };
+    const deps = { db, config: loadConfig({}), provider, now: () => virtualNow };
+
+    // Advance ~a day between batches so MIN_STALE_HOURS lets each pair re-plan.
+    const businessDormant = () =>
+      dormantRouteMonths(db, 'mock', 'ABQ', 5, 14, sqliteStamp(virtualNow));
+    for (let day = 0; day < 6; day++) {
+      virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + day * 86_400_000);
+      await runScanBatch(deps);
+    }
+    // Every business route-month (6 months) has gone dormant; economy never does.
+    const dormant = businessDormant();
+    expect(dormant.size).toBe(6);
+    expect([...dormant].every((k) => k.endsWith('|business'))).toBe(true);
+
+    // 20 days later the rest window has lapsed → nothing suppressed (re-probe).
+    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 30 * 86_400_000);
+    expect(businessDormant().size).toBe(0);
+  }, 30_000);
 
   it('enforces the budget against the LOCAL day when no virtual clock is injected', async () => {
     const deps = makeDeps();

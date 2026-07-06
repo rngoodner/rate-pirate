@@ -102,6 +102,21 @@ describe('planBatch', () => {
     expect(tasks[0]!.destination).toBe('NEW');
   });
 
+  it('skips dormant route-month-cabins so they stop consuming scrapes', () => {
+    const tasks = planBatch({
+      cabins: ['economy', 'business'],
+      destinations: [dest('CUN', 1)],
+      latestCapture: new Map(),
+      now,
+      horizon: 1,
+      // No business fares on this leisure route → its business pair rests.
+      dormant: new Set(['CUN|2026-08|business']),
+      limit: 100,
+    });
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ destination: 'CUN', cabin: 'economy' });
+  });
+
   it('respects the limit and returns nothing for a spent budget', () => {
     const tasks = planBatch({
       cabins: ['economy'],

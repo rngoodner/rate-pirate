@@ -40,15 +40,19 @@ export function planBatch(opts: {
    *  local-calendar date here so the horizon rolls at local midnight, not UTC —
    *  while staleness math stays on the real clock. */
   monthsNow?: Date;
+  /** 'dest|month|cabin' keys resting because they reliably return no fares. */
+  dormant?: Set<string>;
   horizon: number;
   limit: number;
 }): RouteMonthTask[] {
   if (opts.limit <= 0 || opts.cabins.length === 0) return [];
   const months = horizonMonths(opts.monthsNow ?? opts.now, opts.horizon);
+  const dormant = opts.dormant ?? new Set<string>();
 
   const candidates = opts.destinations.flatMap((dest) =>
     months.flatMap((month, monthIdx) =>
       opts.cabins
+        .filter((cabin) => !dormant.has(`${dest.iata}|${month}|${cabin}`))
         .map((cabin) => {
           const latest = opts.latestCapture.get(`${dest.iata}|${month}|${cabin}`);
           const staleHours = latest
