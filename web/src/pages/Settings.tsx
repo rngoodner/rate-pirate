@@ -108,6 +108,33 @@ export default function Settings() {
           </span>
         </Link>
 
+        <Field label="Cabins to monitor">
+          <div className="flex flex-wrap gap-2">
+            {CABINS.map((cabin) => {
+              const selected = settings.monitoredCabins.includes(cabin);
+              return (
+                <button
+                  key={cabin}
+                  type="button"
+                  aria-pressed={selected}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                    selected
+                      ? CABIN_CHIP_SELECTED_CLASS[cabin]
+                      : 'border-gray-300 bg-white text-gray-600'
+                  }`}
+                  onClick={() => toggleCabin(cabin)}
+                >
+                  {CABIN_LABELS[cabin]}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Each cabin is scanned separately, so monitoring more cabins means each one refreshes
+            less often. At least one is required.
+          </p>
+        </Field>
+
         <Field label="Alert recipients">
           <EmailRecipients
             value={settings.alertEmail}
@@ -146,33 +173,6 @@ export default function Settings() {
           <p className="text-xs text-gray-500">
             Higher = fewer, better deals. Emails also require the price to be ≥
             {Math.round(settings.alertMinDiscount * 100)}% below normal (set under Advanced).
-          </p>
-        </Field>
-
-        <Field label="Cabins to monitor">
-          <div className="flex flex-wrap gap-2">
-            {CABINS.map((cabin) => {
-              const selected = settings.monitoredCabins.includes(cabin);
-              return (
-                <button
-                  key={cabin}
-                  type="button"
-                  aria-pressed={selected}
-                  className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${
-                    selected
-                      ? CABIN_CHIP_SELECTED_CLASS[cabin]
-                      : 'border-gray-300 bg-white text-gray-600'
-                  }`}
-                  onClick={() => toggleCabin(cabin)}
-                >
-                  {CABIN_LABELS[cabin]}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-2 text-xs text-gray-500">
-            Each cabin is scanned separately, so monitoring more cabins means each one refreshes
-            less often. At least one is required.
           </p>
         </Field>
 
