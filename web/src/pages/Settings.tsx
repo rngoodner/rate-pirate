@@ -189,11 +189,9 @@ export default function Settings() {
             />
           </label>
           <p className="mt-2 text-xs text-gray-500">
-            When on, Rate Pirate checks flight prices on a schedule (4 batches a day) and emails
-            you when a great deal appears — a score above your alert threshold and a price ≥
+            Checks prices 4× a day and emails when a deal scores above your threshold and is ≥
             {Math.round(settings.alertMinDiscount * 100)}% below normal (set under Advanced).
-            Turn off to pause all price checks and alerts without losing your saved price
-            history.
+            Turning off pauses checks and alerts; price history is kept.
           </p>
         </Field>
 
