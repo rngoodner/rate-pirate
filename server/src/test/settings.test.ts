@@ -17,6 +17,7 @@ describe('settings', () => {
       scanEnabled: true,
       monitoredCabins: ['economy', 'premium_economy'],
       alertMinDiscount: 0.2,
+      dealMinDiscount: 0.05,
       alertCooldownDays: 7,
       scanHorizonMonths: 6,
     });
@@ -40,9 +41,15 @@ describe('settings', () => {
 
   it('advanced tunables round-trip (including the float discount)', () => {
     const db = openDb(':memory:');
-    updateSettings(db, { alertMinDiscount: 0.15, alertCooldownDays: 3, scanHorizonMonths: 4 });
+    updateSettings(db, {
+      alertMinDiscount: 0.15,
+      dealMinDiscount: 0.1,
+      alertCooldownDays: 3,
+      scanHorizonMonths: 4,
+    });
     const s = getSettings(db, config);
     expect(s.alertMinDiscount).toBe(0.15);
+    expect(s.dealMinDiscount).toBe(0.1);
     expect(s.alertCooldownDays).toBe(3);
     expect(s.scanHorizonMonths).toBe(4);
   });

@@ -13,6 +13,7 @@ const settings: Settings = {
   scanEnabled: true,
   monitoredCabins: ['economy'],
   alertMinDiscount: 0.2,
+  dealMinDiscount: 0.05,
   alertCooldownDays: 7,
   scanHorizonMonths: 6,
 };

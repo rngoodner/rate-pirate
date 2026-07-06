@@ -438,6 +438,25 @@ function Advanced({
           </AdvField>
 
           <AdvField
+            label={`Deal feed floor — ${Math.round(settings.dealMinDiscount * 100)}%`}
+            hint="Prices at least this far below typical show as deals on the home page (emails have their own bar above). Deals expire when the price recovers past it."
+          >
+            <input
+              className="w-full accent-brand"
+              type="range"
+              aria-label="Deal feed floor percent"
+              min={1}
+              max={30}
+              value={Math.round(settings.dealMinDiscount * 100)}
+              onChange={(e) =>
+                setSettings({ ...settings, dealMinDiscount: Number(e.target.value) / 100 })
+              }
+              onPointerUp={() => save({ dealMinDiscount: settings.dealMinDiscount })}
+              onBlur={() => save({ dealMinDiscount: settings.dealMinDiscount })}
+            />
+          </AdvField>
+
+          <AdvField
             label="Re-alert cooldown (days)"
             hint="Days before the same route-month can alert again. A drop ≥10% below the last alerted price re-alerts sooner."
           >

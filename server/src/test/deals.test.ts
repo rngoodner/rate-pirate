@@ -175,6 +175,13 @@ describe('processRouteMonth', () => {
     expect(deal!.discountPct).toBeCloseTo(0.35);
     expect(deal!.status).toBe('active');
     expect(deal!.departDate).toBe('2026-08-10');
+
+    // A custom feed floor above the discount suppresses (and expires) the deal.
+    const suppressed = processRouteMonth(db, route, '2026-06-20 09:00:00', { minDiscount: 0.4 });
+    expect(suppressed).toBeNull();
+    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
+      'expired',
+    );
   });
 
   it('returns null during cold start and creates no deal', () => {

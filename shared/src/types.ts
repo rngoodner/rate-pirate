@@ -181,6 +181,9 @@ export interface Settings {
   monitoredCabins: Cabin[];
   /** Hard floor: never alert on less than this discount (0..1 fraction). */
   alertMinDiscount: number;
+  /** Feed floor: a price must be this far below baseline (0..1 fraction) to
+   *  count as a deal at all; deals expire back below it. */
+  dealMinDiscount: number;
   /** Days without re-alerting the same route-month (unless the price deepens). */
   alertCooldownDays: number;
   /** How many months ahead to scan; scales the scan universe. */

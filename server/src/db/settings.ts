@@ -20,6 +20,7 @@ export function getSettings(db: Db, config: Config): Settings {
     scanEnabled: (stored.get('scan_enabled') ?? 'true') === 'true',
     monitoredCabins: parseCabins(stored.get('monitored_cabins')),
     alertMinDiscount: floatOr(stored.get('alert_min_discount'), 0.2),
+    dealMinDiscount: floatOr(stored.get('deal_min_discount'), 0.05),
     alertCooldownDays: intOr(stored.get('alert_cooldown_days'), 7),
     scanHorizonMonths: intOr(stored.get('scan_horizon_months'), 6),
   };
@@ -45,6 +46,7 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
       ? CABINS.filter((c) => patch.monitoredCabins!.includes(c)).join(',')
       : undefined,
     alert_min_discount: patch.alertMinDiscount?.toString(),
+    deal_min_discount: patch.dealMinDiscount?.toString(),
     alert_cooldown_days: patch.alertCooldownDays?.toString(),
     scan_horizon_months: patch.scanHorizonMonths?.toString(),
   };

@@ -28,6 +28,7 @@ export function createOnQuotes(
         month: task.month,
       },
       asOf,
+      { minDiscount: settings.dealMinDiscount },
     );
     if (deal) await maybeAlert(db, deal, settings, sender, asOf);
   };

@@ -131,6 +131,7 @@ describe('API routes', () => {
 
     for (const body of [
       { alertMinDiscount: 0.6 },
+      { dealMinDiscount: 0.5 },
       { alertCooldownDays: 0 },
       { scanHorizonMonths: 12 },
     ]) {

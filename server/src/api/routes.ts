@@ -47,6 +47,7 @@ const settingsPatchSchema = z
       .nonempty('select at least one cabin')
       .transform((cabins) => [...new Set(cabins)]),
     alertMinDiscount: z.number().min(0.05).max(0.5),
+    dealMinDiscount: z.number().min(0.01).max(0.3),
     alertCooldownDays: z.number().int().min(1).max(30),
     scanHorizonMonths: z.number().int().min(2).max(9),
   })
