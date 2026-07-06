@@ -44,8 +44,8 @@ function makeSim(dailyBudget: number) {
 
 describe('30-day scan simulation', () => {
   it('generous budget: whole universe scanned daily, budget never exceeded', async () => {
-    const universe = DESTINATION_CATALOG.length * 6; // 558
-    const budget = 600;
+    const universe = DESTINATION_CATALOG.length * 6;
+    const budget = universe + 50; // headroom: everything scannable gets scanned
     const sim = makeSim(budget);
 
     for (let day = 0; day < 3; day++) {
@@ -57,26 +57,39 @@ describe('30-day scan simulation', () => {
     expect(latest.size).toBe(universe);
   }, 30_000);
 
-  it('tight budget (60/day): budget enforced, tier-1 cycles fastest, full pass within 30 days', async () => {
-    const sim = makeSim(60);
+  it('tight budget (~universe/9 per day): budget enforced, tier-1 cycles fastest, full pass within 30 days', async () => {
+    // Scales with the catalog so adding destinations doesn't skew the cadence
+    // this test asserts (universe/9 ≈ the old 60/day at 93 destinations).
+    const budget = Math.ceil((DESTINATION_CATALOG.length * 6) / 9);
+    const sim = makeSim(budget);
 
     for (let day = 0; day < 30; day++) {
       await sim.runDay(day);
-      expect(sim.callsOnDay(day)).toBeLessThanOrEqual(60);
+      expect(sim.callsOnDay(day)).toBeLessThanOrEqual(budget);
     }
 
     const latest = latestCaptureByRouteMonth(sim.db, 'mock', 'ABQ');
     const months = horizonMonths(new Date(START + 29 * DAY), 6);
-    // Near-horizon months of every tier-1 favorite stay fresh (≤ ~3 days stale at the end)
     const endOfRun = START + 30 * DAY;
+    const age = (key: string) => endOfRun - Date.parse(latest.get(key)!.replace(' ', 'T') + 'Z');
+    // Near-horizon months of every tier-1 favorite stay reasonably fresh. The
+    // exact cadence depends on the catalog's tier mix, so the absolute bound is
+    // loose; the sharp assertion is the relative one below.
     for (const d of DESTINATION_CATALOG.filter((d) => d.tier === 1)) {
       for (const month of months.slice(0, 2)) {
-        const captured = latest.get(`${d.iata}|${month}|economy`);
-        expect(captured, `${d.iata}|${month} never scanned`).toBeTruthy();
-        const age = endOfRun - Date.parse(captured!.replace(' ', 'T') + 'Z');
-        expect(age, `${d.iata}|${month} stale ${Math.round(age / DAY)}d`).toBeLessThanOrEqual(3.5 * DAY);
+        expect(latest.get(`${d.iata}|${month}|economy`), `${d.iata}|${month} never scanned`).toBeTruthy();
+        const a = age(`${d.iata}|${month}|economy`);
+        expect(a, `${d.iata}|${month} stale ${Math.round(a / DAY)}d`).toBeLessThanOrEqual(6 * DAY);
       }
     }
+    // Tier-1 near months cycle meaningfully faster than tier-3 near months.
+    const avgAge = (tier: number) => {
+      const ages = DESTINATION_CATALOG.filter((d) => d.tier === tier).flatMap((d) =>
+        months.slice(0, 2).map((m) => age(`${d.iata}|${m}|economy`)),
+      );
+      return ages.reduce((s, a) => s + a, 0) / ages.length;
+    };
+    expect(avgAge(1)).toBeLessThan(avgAge(3) * 0.7);
     // Every route-month in the universe was scanned at least once (the run crosses
     // into August, so a 7th month enters the horizon and the map can exceed 6/dest)
     expect(latest.size).toBeGreaterThanOrEqual(DESTINATION_CATALOG.length * 6);

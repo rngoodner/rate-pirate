@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Rate Pirate is a single-user, mobile-first TypeScript web app that monitors round-trip flight prices from a home airport (default ABQ) to ~80 worldwide destinations and emails the user (via Resend) when a price drops far below the historical norm. It finds deals and links out to Google Flights for purchase — **no booking**. The full design (architecture, schema, scoring formulas, phases) is in `DESIGN.md`; UI reference screenshots are in `ui-samples/`.
+Rate Pirate is a single-user, mobile-first TypeScript web app that monitors round-trip flight prices from a home airport (default ABQ) to ~115 worldwide destinations and emails the user when a price drops far below the historical norm. It finds deals and links out to Google Flights for purchase — **no booking**. The full design (architecture, schema, scoring formulas, phases) is in `DESIGN.md`; UI reference screenshots are in `ui-samples/`.
 
 Flight data comes from **scraping Google Flights with headless Chrome** (`server/src/providers/google-flights.ts`) — prices are parsed from result aria-labels, one throttled page load per route-month-cabin. Do not suggest Amadeus (self-service portal decommissioned July 2026) or Travelpayouts (measured ~2% ABQ-origin coverage — removed).
 
