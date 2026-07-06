@@ -132,10 +132,17 @@ export function apiRoutes(deps: AppDeps): Hono {
     // Universe scales with the number of cabins actually monitored.
     const universe =
       activeDestinations(db).length * settings.scanHorizonMonths * settings.monitoredCabins.length;
+    const errors = errorsToday(db);
+    const calls = apiCallsToday(db, deps.provider.name);
+    // "Effectively broken": many failures relative to today's call volume, or
+    // repeated batch-level errors (crashes / the zero-price anomaly, which
+    // logs once per batch and would never clear a share-of-calls bar).
+    const scansBroken =
+      (errors >= 5 && errors >= 0.3 * Math.max(calls, 1)) || errorsToday(db, 'batch') >= 2;
     const status: ScanStatus = {
       provider: deps.provider.name,
       lastScanAt: lastApiCallAt(db, deps.provider.name),
-      callsToday: apiCallsToday(db, deps.provider.name),
+      callsToday: calls,
       dailyCallBudget: settings.dailyCallBudget,
       // Clamp: history can hold baselines for months beyond a freshly-shrunk
       // horizon, which would push the ratio past 1.
@@ -148,7 +155,8 @@ export function apiRoutes(deps: AppDeps): Hono {
                 universe,
             ),
       activeDeals: activeDealsWithPlace(db, deps.provider.name, settings.monitoredCabins).length,
-      errorsToday: errorsToday(db),
+      errorsToday: errors,
+      scansBroken,
     };
     return c.json(status);
   });

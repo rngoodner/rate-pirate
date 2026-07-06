@@ -4,6 +4,7 @@ import {
   activeDestinations,
   apiCallsToday,
   errorsToday,
+  expireDealsOutsideUniverse,
   insertSnapshot,
   latestCaptureByRouteMonth,
   logEvent,
@@ -14,6 +15,7 @@ import {
   seedDestinations,
   snapshotsForRoute,
   snapshotsForRouteMonth,
+  upsertDeal,
 } from '../db/repo.js';
 import { DESTINATION_CATALOG } from '../scanner/destinations.js';
 
@@ -98,6 +100,45 @@ describe('repo', () => {
     recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: false, status: 429 });
     recordApiCall(db, { provider: 'other', endpoint: 'x', ok: true });
     expect(apiCallsToday(db, 'google-flights')).toBe(2);
+  });
+
+  it('expires zombie deals outside the scanned universe', () => {
+    const db = openDb(':memory:');
+    const base = {
+      source: 'mock',
+      origin: 'ABQ',
+      destination: 'NAP',
+      cabin: 'economy' as const,
+      travelMonth: '2026-09',
+      bestPriceCents: 65000,
+      baselinePriceCents: 100000,
+      discountPct: 0.35,
+      score: 93,
+      departDate: '2026-09-12',
+      returnDate: '2026-09-19',
+      seenAt: '2026-07-06 08:00:00',
+    };
+    const keep = upsertDeal(db, base);
+    // Unmonitored cabins are deliberately NOT expired (feed hides them instead).
+    const otherCabin = upsertDeal(db, { ...base, cabin: 'first', destination: 'LIS' });
+    const wrongOrigin = upsertDeal(db, { ...base, origin: 'DEN', destination: 'CUN' });
+    const beyondHorizon = upsertDeal(db, { ...base, travelMonth: '2027-05', destination: 'OSL', departDate: '2027-05-09', returnDate: '2027-05-16' });
+    const departed = upsertDeal(db, { ...base, travelMonth: '2026-07', destination: 'SEA', departDate: '2026-07-04', returnDate: '2026-07-11' });
+
+    const expired = expireDealsOutsideUniverse(db, {
+      source: 'mock',
+      origin: 'ABQ',
+      lastMonth: '2027-01',
+      today: '2026-07-06',
+    });
+    expect(expired).toBe(3);
+    const status = (id: number) =>
+      (db.prepare('SELECT status FROM deals WHERE id = ?').get(id) as { status: string }).status;
+    expect(status(keep.id)).toBe('active');
+    expect(status(otherCabin.id)).toBe('active');
+    for (const d of [wrongOrigin, beyondHorizon, departed]) {
+      expect(status(d.id)).toBe('expired');
+    }
   });
 
   it('logs, lists, counts, and prunes app events', () => {

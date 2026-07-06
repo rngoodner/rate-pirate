@@ -116,8 +116,12 @@ export interface ScanStatus {
   /** Fraction of active route-months that have enough history for a baseline. */
   baselineCoverage: number;
   activeDeals: number;
-  /** Error events logged today (local day) — drives the feed failure banner. */
+  /** Error events logged today (local day). */
   errorsToday: number;
+  /** Server-judged "scanning is effectively broken" — drives the feed's red
+   *  banner. True on a high failure share of today's calls, or on repeated
+   *  batch-level errors (crashes, zero-price anomaly). */
+  scansBroken: boolean;
 }
 
 /** One row of the in-app activity/error log (Settings → Activity log). */

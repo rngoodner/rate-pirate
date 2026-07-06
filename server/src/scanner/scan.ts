@@ -4,6 +4,7 @@ import {
   activeDestinations,
   apiCallsToday,
   expireDealsBeforeMonth,
+  expireDealsOutsideUniverse,
   insertSnapshot,
   latestCaptureByRouteMonth,
   logEvent,
@@ -11,7 +12,7 @@ import {
 } from '../db/repo.js';
 import { getSettings } from '../db/settings.js';
 import type { FlightPriceProvider, RoundTripQuote } from '../providers/types.js';
-import { planBatch, type RouteMonthTask } from './planner.js';
+import { horizonMonths, planBatch, type RouteMonthTask } from './planner.js';
 
 /** Cap snapshots stored per scan of one route-month (cheapest first). */
 const MAX_SNAPSHOTS_PER_SCAN = 10;
@@ -72,7 +73,23 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   }
 
   const calRef = calendarRef(now(), virtualClock);
+  const months = horizonMonths(calRef, settings.scanHorizonMonths);
   expireDealsBeforeMonth(db, calRef.toISOString().slice(0, 7));
+  // Deals the scanner will never re-visit must not linger with stale prices.
+  const zombies = expireDealsOutsideUniverse(db, {
+    source: provider.name,
+    origin: settings.homeAirport,
+    lastMonth: months[months.length - 1]!,
+    today: calRef.toISOString().slice(0, 10),
+  });
+  if (zombies > 0) {
+    logEvent(db, {
+      level: 'info',
+      scope: 'batch',
+      message: `expired ${zombies} deal${zombies === 1 ? '' : 's'} no longer scanned (departed, or outside the current airport/horizon)`,
+      at: asOf,
+    });
+  }
   // Real clock: count against the LOCAL day (apiCallsToday's no-asOf branch);
   // the asOf branch exists for the simulator's virtual timestamps only.
   const used = apiCallsToday(db, provider.name, virtualClock ? asOf : undefined);
@@ -161,6 +178,19 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       (failures ? `, ${failures} failed` : ''),
     at: sqliteStamp(now()),
   });
+  // Anomaly: a sizable batch where every scan "succeeded" with zero prices is
+  // the signature of Google changing its markup (or serving a non-English
+  // page) — each page load reports ok, so without this check the breakage is
+  // invisible while baselines silently age out. Individual no-flight routes
+  // are normal; a whole batch of them is not.
+  if (scanned >= 10 && snapshots === 0) {
+    logEvent(db, {
+      level: 'error',
+      scope: 'batch',
+      message: `possible scraper breakage: ${scanned} scans succeeded but returned zero prices — Google may have changed its page format`,
+      at: sqliteStamp(now()),
+    });
+  }
   return { planned: tasks.length, scanned, snapshots, failures };
 }
 

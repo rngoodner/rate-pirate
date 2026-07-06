@@ -165,6 +165,8 @@ describe('API routes', () => {
     expect(errs[0]!.message).toContain('scrape blocked');
     status = (await (await brokenApp.request('/api/status')).json()) as ScanStatus;
     expect(status.errorsToday).toBe(errs.length);
+    // Every task failed → the server judges scanning broken (feed shows red).
+    expect(status.scansBroken).toBe(true);
   });
 
   it('GET /api/status reports provider, budget, and coverage', async () => {

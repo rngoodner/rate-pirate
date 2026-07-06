@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
-import { seedDestinations } from '../db/repo.js';
+import { recentEvents, seedDestinations } from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
 import { DESTINATION_CATALOG } from '../scanner/destinations.js';
@@ -40,6 +40,21 @@ describe('runScanBatch guards', () => {
     const third = await runScanBatch(deps, 1);
     expect(third.skippedReason).toBeUndefined();
     expect(third.scanned).toBe(1);
+  });
+
+  it('flags a sizable all-zero-price batch as possible scraper breakage', async () => {
+    const emptyProvider: FlightPriceProvider = {
+      name: 'mock',
+      monthQuotes: async () => [],
+    };
+    const deps = makeDeps(emptyProvider);
+    const result = await runScanBatch(deps, 12);
+    expect(result.scanned).toBe(12);
+    expect(result.snapshots).toBe(0);
+    const anomaly = recentEvents(deps.db, 10).find((e) => e.level === 'error');
+    expect(anomaly).toBeDefined();
+    expect(anomaly!.scope).toBe('batch');
+    expect(anomaly!.message).toContain('zero prices');
   });
 
   it('enforces the budget against the LOCAL day when no virtual clock is injected', async () => {

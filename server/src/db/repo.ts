@@ -304,6 +304,25 @@ export function expireDealsBeforeMonth(db: Db, month: string): number {
     .run(month).changes;
 }
 
+/** Expire active deals the scanner will never re-evaluate: wrong origin (home
+ *  airport changed), travel month beyond the horizon (horizon shrunk), or a
+ *  departure date already in the past. Without this, such "zombie" deals sit
+ *  in the feed showing stale prices indefinitely. Unmonitored cabins are NOT
+ *  expired — the feed already hides them, and expiring would break the
+ *  toggle-a-cabin-to-peek flow (and demo mode's instant cabin switching). */
+export function expireDealsOutsideUniverse(
+  db: Db,
+  opts: { source: string; origin: string; lastMonth: string; today: string },
+): number {
+  return db
+    .prepare(
+      `UPDATE deals SET status = 'expired'
+       WHERE status = 'active' AND source = ?
+         AND (origin != ? OR travel_month > ? OR depart_date < ?)`,
+    )
+    .run(opts.source, opts.origin, opts.lastMonth, opts.today).changes;
+}
+
 export interface DealWithPlace extends DealRow {
   city: string;
   country: string;
@@ -518,21 +537,16 @@ export function recentEvents(db: Db, limit: number): AppEventRow[] {
     .all(limit) as AppEventRow[];
 }
 
-/** Errors logged today; LOCAL day boundary, same rationale as apiCallsToday. */
-export function errorsToday(db: Db, asOf?: string): number {
-  const row = asOf
-    ? (db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM app_events
-           WHERE level = 'error' AND created_at >= date(?) AND created_at <= ?`,
-        )
-        .get(asOf, asOf) as { n: number })
-    : (db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM app_events
-           WHERE level = 'error' AND datetime(created_at, 'localtime') >= date('now', 'localtime')`,
-        )
-        .get() as { n: number });
+/** Errors logged today, optionally within one scope; LOCAL day boundary, same
+ *  rationale as apiCallsToday. */
+export function errorsToday(db: Db, scope?: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM app_events
+       WHERE level = 'error' AND (? IS NULL OR scope = ?)
+         AND datetime(created_at, 'localtime') >= date('now', 'localtime')`,
+    )
+    .get(scope ?? null, scope ?? null) as { n: number };
   return row.n;
 }
 

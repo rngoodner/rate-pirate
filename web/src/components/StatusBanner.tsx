@@ -15,15 +15,15 @@ export default function StatusBanner() {
 
   if (!status) return null;
 
-  // Failing scans outrank the cold-start notice: ≥5 errors today AND errors
-  // are a meaningful share of the day's calls (occasional transients stay quiet).
-  const failing =
-    status.errorsToday >= 5 && status.errorsToday >= 0.3 * Math.max(status.callsToday, 1);
-  if (failing) {
+  // Failing scans outrank the cold-start notice. The judgment lives server-side
+  // (it needs event scopes the status JSON doesn't expose).
+  if (status.scansBroken) {
     return (
       <div className="mb-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800">
-        <strong>Scans are failing</strong> — {status.errorsToday} errors today. See Settings →
-        Activity log.
+        <strong>Scans are failing</strong>
+        {status.errorsToday > 0 &&
+          ` — ${status.errorsToday} error${status.errorsToday === 1 ? '' : 's'} today`}
+        . See Settings → Activity log.
       </div>
     );
   }
