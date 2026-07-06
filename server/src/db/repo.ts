@@ -411,13 +411,16 @@ export function getDealWithPlace(db: Db, id: number): DealWithPlace | null {
   );
 }
 
-/** Most recent price per distinct date pair on a route+cabin, cheapest first. */
+/** Most recent price per distinct date pair on a route+cabin within one travel
+ *  month, cheapest first. Scoped to the month so a deal page never mixes in
+ *  cheaper dates from other months than the deal it describes. */
 export function recentDateOptions(
   db: Db,
   source: string,
   origin: string,
   destination: string,
   cabin: Cabin,
+  travelMonth: string,
   sinceDays: number,
   limit: number,
 ): { departDate: string; returnDate: string; priceCents: number; capturedAt: string }[] {
@@ -431,12 +434,13 @@ export function recentDateOptions(
          ) AS rn
          FROM price_snapshots
          WHERE source = ? AND origin = ? AND destination = ? AND cabin = ?
+           AND travel_month = ?
            AND captured_at >= datetime('now', '-' || ? || ' days')
            AND depart_date >= date('now', 'localtime')
        )
        WHERE rn = 1 ORDER BY price_cents LIMIT ?`,
     )
-    .all(source, origin, destination, cabin, sinceDays, limit) as {
+    .all(source, origin, destination, cabin, travelMonth, sinceDays, limit) as {
     departDate: string;
     returnDate: string;
     priceCents: number;

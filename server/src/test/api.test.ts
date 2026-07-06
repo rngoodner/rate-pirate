@@ -50,15 +50,18 @@ describe('API routes', () => {
   it('GET /api/deals/:id returns the deal with date options and booking links', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);
-    for (const [depart, ret, price] of [
-      ['2099-08-18', '2099-08-26', 65000],
-      ['2099-08-04', '2099-08-11', 88000],
+    for (const [month, depart, ret, price] of [
+      ['2099-08', '2099-08-18', '2099-08-26', 65000],
+      ['2099-08', '2099-08-04', '2099-08-11', 88000],
+      // Cheaper, but a different travel month — must NOT appear among the
+      // date options of a 2099-08 deal.
+      ['2099-09', '2099-09-05', '2099-09-12', 40000],
     ] as const) {
       insertSnapshot(db, {
         origin: 'ABQ',
         destination: 'NAP',
         cabin: 'economy',
-        travelMonth: '2099-08',
+        travelMonth: month,
         departDate: depart,
         returnDate: ret,
         priceCents: price,

@@ -97,6 +97,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       deal.origin,
       deal.destination,
       deal.cabin,
+      deal.travelMonth,
       7,
       20,
     );
