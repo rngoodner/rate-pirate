@@ -26,6 +26,20 @@ export function isCabin(value: string): value is Cabin {
   return (CABINS as readonly string[]).includes(value);
 }
 
+/** Split a recipient field into individual addresses. Accepts comma / semicolon
+ *  / whitespace / newline separators so "a@x.com, b@y.com" → ['a@x.com','b@y.com']. */
+export function parseRecipients(value: string): string[] {
+  return value
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+export function isEmail(value: string): boolean {
+  return EMAIL_RE.test(value);
+}
+
 /** Where-to-buy deep link — Rate Pirate never books flights itself. */
 export function googleFlightsUrl(
   origin: string,

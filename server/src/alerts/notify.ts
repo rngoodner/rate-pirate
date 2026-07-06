@@ -1,4 +1,4 @@
-import type { Settings } from '@rate-pirate/shared';
+import { parseRecipients, type Settings } from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
 import { getDestination, lastAlertForDeal, recordAlert, type DealRow } from '../db/repo.js';
 import type { EmailSender } from './email.js';
@@ -33,7 +33,8 @@ export async function maybeAlert(
 ): Promise<NotifyResult> {
   if (deal.score < settings.alertThreshold) return { sent: false, reason: 'below_threshold' };
   if (deal.discountPct < MIN_DISCOUNT) return { sent: false, reason: 'below_min_discount' };
-  if (!settings.alertEmail) return { sent: false, reason: 'no_recipient' };
+  const recipients = parseRecipients(settings.alertEmail);
+  if (recipients.length === 0) return { sent: false, reason: 'no_recipient' };
 
   const last = lastAlertForDeal(db, deal.id);
   if (last) {
@@ -61,7 +62,7 @@ export async function maybeAlert(
 
   try {
     await sender.send({
-      to: settings.alertEmail,
+      to: recipients,
       subject: alertSubject(content),
       html: alertHtml(content),
     });
@@ -72,7 +73,7 @@ export async function maybeAlert(
 
   recordAlert(db, {
     dealId: deal.id,
-    sentTo: settings.alertEmail,
+    sentTo: recipients.join(', '),
     priceCents: deal.bestPriceCents,
     score: deal.score,
     sentAt: asOf,

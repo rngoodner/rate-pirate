@@ -3,6 +3,8 @@ import { z } from 'zod';
 import {
   CABINS,
   googleFlightsUrl,
+  isEmail,
+  parseRecipients,
   type Deal,
   type DealDetail,
   type ScanStatus,
@@ -25,7 +27,10 @@ import { alertHtml, alertSubject } from '../alerts/template.js';
 const settingsPatchSchema = z
   .object({
     homeAirport: z.string().regex(/^[A-Za-z]{3}$/, 'IATA code must be 3 letters'),
-    alertEmail: z.string().email().or(z.literal('')),
+    // One or more addresses (comma/space separated); empty is allowed (no alerts).
+    alertEmail: z
+      .string()
+      .refine((s) => parseRecipients(s).every(isEmail), 'each recipient must be a valid email'),
     alertThreshold: z.number().int().min(50).max(100),
     dailyCallBudget: z.number().int().min(4).max(5000),
     scanEnabled: z.boolean(),
@@ -143,7 +148,8 @@ export function apiRoutes(deps: AppDeps): Hono {
     const sender = deps.sender;
     if (!sender) return c.json({ error: 'no email sender configured' }, 503);
     const settings = getSettings(db, config);
-    if (!settings.alertEmail) return c.json({ error: 'no alert email configured' }, 400);
+    const recipients = parseRecipients(settings.alertEmail);
+    if (recipients.length === 0) return c.json({ error: 'no alert email configured' }, 400);
     const sample = {
       origin: settings.homeAirport,
       destination: 'NAP',
@@ -160,11 +166,11 @@ export function apiRoutes(deps: AppDeps): Hono {
     };
     try {
       await sender.send({
-        to: settings.alertEmail,
+        to: recipients,
         subject: `[test] ${alertSubject(sample)}`,
         html: alertHtml(sample),
       });
-      return c.json({ sent: true, via: sender.name, to: settings.alertEmail });
+      return c.json({ sent: true, via: sender.name, to: recipients.join(', ') });
     } catch (err) {
       return c.json({ sent: false, error: String(err) }, 502);
     }

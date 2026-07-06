@@ -8,9 +8,9 @@ notes in [CLAUDE.md](CLAUDE.md).
 
 - **App (production):** http://your-server.local:8081 — add to your phone's home screen
 - **Runs on:** `your-server.local` (Debian 12), app dir `/opt/rate-pirate`
-- **Alerts:** sent via Resend when a deal scores ≥ threshold (default 85) **and**
-  is ≥20% below the route's baseline; 7-day cooldown per route-month unless the
-  price drops another 10%
+- **Alerts:** emailed when a deal scores ≥ threshold (default 85) **and** is ≥20%
+  below the route's baseline; 7-day cooldown per route-month unless the price drops
+  another 10%. Sent via SMTP (Proton Bridge) or Resend — see "Email" below.
 
 ## Administering the service (on your-server.local)
 
@@ -66,17 +66,73 @@ Scheduled batches run at 06:10, 11:10, 17:10, 22:10 America/Denver.
 curl -s -X POST localhost:3789/api/test-email
 ```
 
-Note: until a domain is verified at resend.com/domains, Resend only delivers to
-the account owner's address (ryangoodner@pm.me).
+Sends the sample alert to every address in the alert-email setting. `{ sent: true }`
+means the send succeeded; `{ sent: false, error: ... }` is the sender's error verbatim.
+
+### Email
+
+The app picks a sender by what's configured, in this order: **SMTP** (if `SMTP_HOST`
+is set) → **Resend** (if `RESEND_API_KEY` is set) → console log (dev). The alert-email
+setting accepts **multiple recipients**, comma-separated; all of them get every alert.
+
+#### Email via Proton Bridge (current setup)
+
+Proton has no plain SMTP for `@proton.me`, so we run **Proton Bridge** on the server —
+a local daemon that exposes an authenticated SMTP endpoint the app talks to. Requires a
+paid Proton plan. One-time setup on `your-server.local`:
+
+1. **Install Bridge (headless).** Download the Debian package from
+   <https://proton.me/mail/bridge> (or `proton-mail-bridge` if packaged) and install it.
+   Bridge needs a keychain to store its vault; on a headless box install `pass`:
+   ```bash
+   sudo apt install -y pass
+   gpg --quick-generate-key "rate-pirate bridge" && pass init "rate-pirate bridge"
+   ```
+2. **Log in.** Run the Bridge CLI and sign in with your Proton account (+ 2FA):
+   ```bash
+   protonmail-bridge --cli
+   >>> login          # follow prompts; then:
+   >>> info           # shows the SMTP host/port, username, and Bridge PASSWORD
+   ```
+   The Bridge **password** shown here is app-specific — not your Proton login. Copy it.
+3. **Keep it running.** Run Bridge as a service so it survives reboots, e.g. a user
+   systemd unit running `protonmail-bridge --noninteractive`. Verify it's listening:
+   ```bash
+   ss -tlnp | grep 1025      # Bridge SMTP
+   ```
+4. **Point the app at it** — in `/opt/rate-pirate/.env`:
+   ```ini
+   ALERT_EMAIL_FROM=you@proton.me
+   SMTP_HOST=127.0.0.1
+   SMTP_PORT=1025
+   SMTP_USER=you@proton.me
+   SMTP_PASS=<bridge password from step 2>
+   SMTP_SECURE=false
+   SMTP_ALLOW_INVALID_CERT=true      # Bridge uses a localhost self-signed cert
+   ```
+   Then `sudo systemctl restart rate-pirate` and `curl -s -X POST localhost:3789/api/test-email`.
+
+Because mail goes out through your real Proton account, alerts can be delivered to **any**
+address (yourself, family, teammates) — no domain or per-recipient verification needed.
+
+Note: Bridge must stay running for alerts to send. If it's down, sends fail and are retried
+on the next scan (the deal stays flagged); no alerts are lost silently — failures log to
+`journalctl -u rate-pirate`.
+
+#### Resend (fallback)
+
+Leave `SMTP_HOST` empty and set `RESEND_API_KEY` to use Resend instead. Without a verified
+domain, Resend only delivers to the account owner's own address — which is why we moved to
+Bridge for multi-recipient alerts.
 
 ### Configuration
 
 Two layers:
 
-- **`/opt/rate-pirate/.env`** — secrets and machine config (Resend
-  key, provider choice, port, DB path). Edit, then `sudo systemctl restart rate-pirate`.
-- **Settings UI / API** — home airport, alert email, alert threshold, daily call
-  budget, scan on/off. Stored in the database; no restart needed.
+- **`/opt/rate-pirate/.env`** — secrets and machine config (SMTP /
+  Resend, provider choice, port, DB path). Edit, then `sudo systemctl restart rate-pirate`.
+- **Settings UI / API** — home airport, alert email (comma-separated for multiple),
+  alert threshold, cabins, daily call budget, scan on/off. In the DB; no restart needed.
 
 ### Demo mode (mock data)
 
@@ -141,7 +197,7 @@ sudo nginx -t && sudo systemctl reload nginx   # after editing the site config
 | App unreachable at :8081 | `systemctl status rate-pirate`, then `curl localhost:3789/api/health` on the server (isolates app vs nginx), then `sudo nginx -t` |
 | Scans failing | `journalctl -u rate-pirate --since today \| grep 'scan failed'`. Occasional `TransientPageError` is normal (Google hiccup — retried next batch). Many consecutive failures usually mean Google changed its page or is challenging the server's IP; try `chromium --version` and reduce `dailyCallBudget` in Settings. |
 | No deals after 2+ weeks | Settings → Status: is `baselineCoverage` growing? Is `callsToday` > 0? If scanning is on and coverage is high, there simply may be no qualifying deals — lower the alert threshold to see more. |
-| No alert emails | Send a test email (above). Remember the Resend test-mode restriction, and that alerts also require a ≥20% discount, not just a high score. |
+| No alert emails | Send a test email (above) and read the returned error. On Proton Bridge, check Bridge is running (`ss -tlnp \| grep 1025`). Remember alerts also require a ≥20% discount, not just a high score. |
 | Service won't start | `journalctl -u rate-pirate -n 50`. Common causes: missing `/opt/rate-pirate/.env`, or `node`/`chromium` missing after an OS reinstall (`apt install nodejs chromium`). |
 
 ## Local development (macOS)

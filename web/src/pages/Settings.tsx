@@ -67,14 +67,18 @@ export default function Settings() {
         <Field label="Alert email">
           <input
             className="w-full bg-transparent text-lg font-bold outline-none"
-            type="email"
-            placeholder="you@example.com"
+            type="text"
+            inputMode="email"
+            placeholder="you@example.com, friend@example.com"
             defaultValue={settings.alertEmail}
             onBlur={(e) => {
               const v = e.target.value.trim();
               if (v !== settings.alertEmail) save({ alertEmail: v });
             }}
           />
+          <p className="mt-2 text-xs text-gray-500">
+            Separate multiple recipients with commas. All of them receive every alert.
+          </p>
         </Field>
 
         <Field label={`Alert threshold — score ${settings.alertThreshold}+`}>

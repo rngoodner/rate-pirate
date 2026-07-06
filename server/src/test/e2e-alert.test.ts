@@ -67,7 +67,7 @@ describe('alert pipeline simulation', () => {
     await runDay(12);
     expect(napAlerts()).toHaveLength(1);
     const first = napAlerts()[0]!;
-    expect(first.msg.to).toBe('me@example.com');
+    expect(first.msg.to).toEqual(['me@example.com']);
     expect(first.msg.subject).toMatch(/score (9\d|100)/);
 
     // Days 13–14: same price → cooldown, no repeats.

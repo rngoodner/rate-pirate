@@ -53,9 +53,18 @@ describe('maybeAlert', () => {
     const result = await maybeAlert(db, makeDeal(db), settings, sender, '2026-06-20 08:00:00');
     expect(result.sent).toBe(true);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.to).toBe('me@example.com');
+    expect(sent[0]!.to).toEqual(['me@example.com']);
     expect(sent[0]!.subject).toContain('$650');
     expect(sent[0]!.subject).toContain('35% off');
+  });
+
+  it('sends to every recipient when alertEmail lists several', async () => {
+    const db = openDb(':memory:');
+    const { sender, sent } = fakeSender();
+    const multi = { ...settings, alertEmail: 'me@example.com, partner@example.com' };
+    const result = await maybeAlert(db, makeDeal(db), multi, sender, '2026-06-20 08:00:00');
+    expect(result.sent).toBe(true);
+    expect(sent[0]!.to).toEqual(['me@example.com', 'partner@example.com']);
   });
 
   it('skips below the score threshold and below the discount floor', async () => {
