@@ -19,7 +19,8 @@ export interface AlertContent {
 
 export function alertSubject(a: AlertContent): string {
   const cabin = a.cabin === 'economy' ? '' : ` ${CABIN_LABELS[a.cabin]}`;
-  return `✈ ${a.origin} → ${a.city}${cabin} ${usd(a.priceCents)} (${pct(a.discountPct)} off, score ${a.score}) — ${monthLabel(a.travelMonth)}`;
+  const saved = usd(a.baselineCents - a.priceCents);
+  return `✈ ${a.origin} → ${a.city}${cabin} ${usd(a.priceCents)} — save ${saved} (score ${a.score}) — ${monthLabel(a.travelMonth)}`;
 }
 
 export function alertHtml(a: AlertContent): string {
@@ -35,10 +36,12 @@ export function alertHtml(a: AlertContent): string {
         ${a.score}% deal score
       </span>
     </p>
-    <p style="margin:12px 0;font-size:26px">
+    <p style="margin:12px 0 2px;font-size:26px">
       <span style="color:#9ca3af;text-decoration:line-through;font-size:18px">${usd(a.baselineCents)}</span>
       <strong> ${usd(a.priceCents)}</strong>
-      <span style="color:#16a34a;font-size:15px;font-weight:700">${pct(a.discountPct)} below normal</span>
+    </p>
+    <p style="margin:0 0 12px;color:#16a34a;font-size:16px;font-weight:700">
+      You save ${usd(a.baselineCents - a.priceCents)} vs the route's typical fare
     </p>
     <p style="margin:0 0 20px;color:#374151">${a.departDate} → ${a.returnDate} • round trip</p>
     <a href="${url}"
@@ -59,10 +62,6 @@ export function alertHtml(a: AlertContent): string {
 
 function usd(cents: number): string {
   return `$${Math.round(cents / 100)}`;
-}
-
-function pct(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
 }
 
 /** Friendly local time for a SQLite UTC stamp, e.g. "Jul 6, 5:16 PM MDT". */

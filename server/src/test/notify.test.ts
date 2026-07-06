@@ -59,7 +59,7 @@ describe('maybeAlert', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.to).toEqual(['me@example.com']);
     expect(sent[0]!.subject).toContain('$650');
-    expect(sent[0]!.subject).toContain('35% off');
+    expect(sent[0]!.subject).toContain('save $350'); // baseline $1000 − price $650
   });
 
   it('sends to every recipient when alertEmail lists several', async () => {
