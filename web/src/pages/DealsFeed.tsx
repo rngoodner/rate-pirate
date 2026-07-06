@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
-import type { Deal, Settings } from '@rate-pirate/shared';
+import { Link } from 'react-router-dom';
+import { CABIN_LABELS, type Deal, type Settings } from '@rate-pirate/shared';
 import { api } from '../api/client';
 import DealCard from '../components/DealCard';
 import StatusBanner from '../components/StatusBanner';
+
+function cabinSummary(settings: Settings | null): string {
+  const cabins = settings?.monitoredCabins ?? [];
+  if (cabins.length === 0) return '…';
+  if (cabins.length <= 2) return cabins.map((c) => CABIN_LABELS[c]).join(', ');
+  return `${cabins.length} cabins`;
+}
 
 export default function DealsFeed() {
   const [deals, setDeals] = useState<Deal[] | null>(null);
@@ -18,13 +26,23 @@ export default function DealsFeed() {
     <div>
       <header className="bg-brand-pale px-4 pb-4 pt-6">
         <h1 className="text-xl font-black tracking-tight">🏴‍☠️ Rate Pirate</h1>
-        <div className="mt-3 rounded-2xl bg-white px-4 py-3 shadow-sm">
-          <p className="truncate font-bold">
-            {settings?.homeAirport ?? '…'} <span className="font-normal text-gray-400">⇄</span>{' '}
-            Anywhere
-          </p>
-          <p className="text-sm text-gray-500">Anytime • 1 adult, Economy</p>
-        </div>
+        <Link
+          to="/settings"
+          className="mt-3 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-sm active:bg-gray-50"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-bold">
+              {settings?.homeAirport ?? '…'} <span className="font-normal text-gray-400">⇄</span>{' '}
+              Anywhere
+            </p>
+            <p className="truncate text-sm text-gray-500">
+              Anytime • {cabinSummary(settings)}
+            </p>
+          </div>
+          <span aria-hidden className="text-lg text-gray-400">
+            ⚙︎
+          </span>
+        </Link>
       </header>
 
       <div className="p-4">

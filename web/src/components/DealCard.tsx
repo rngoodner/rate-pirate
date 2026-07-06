@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { CABIN_LABELS, type Deal } from '@rate-pirate/shared';
+import type { Deal } from '@rate-pirate/shared';
 import { monthLabel } from '../api/client';
 import ScoreBadge from './ScoreBadge';
 import PriceTag from './PriceTag';
@@ -13,11 +13,10 @@ export default function DealCard({ deal }: { deal: Deal }) {
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-lg font-extrabold">{deal.city}</p>
-        {deal.cabin !== 'economy' && <CabinBadge cabin={deal.cabin} />}
+        <CabinBadge cabin={deal.cabin} />
       </div>
       <p className="text-sm text-gray-500">
         {deal.country} • {monthLabel(deal.travelMonth)}
-        {deal.cabin === 'economy' ? '' : ` • ${CABIN_LABELS[deal.cabin]}`}
       </p>
       <div className="mt-3 flex items-center justify-between">
         <ScoreBadge score={deal.score} />

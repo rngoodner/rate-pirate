@@ -1,13 +1,11 @@
 import { CABIN_LABELS, type Cabin } from '@rate-pirate/shared';
+import { CABIN_BADGE_CLASS } from '../cabinStyle';
 
-/** Small pill marking a deal's cabin. Premium cabins get a purple accent. */
+/** Small pill marking a deal's cabin; each cabin has its own color. */
 export default function CabinBadge({ cabin }: { cabin: Cabin }) {
-  const premium = cabin !== 'economy';
   return (
     <span
-      className={`inline-block whitespace-nowrap rounded-lg px-2 py-0.5 text-xs font-bold ${
-        premium ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
-      }`}
+      className={`inline-block whitespace-nowrap rounded-lg px-2 py-0.5 text-xs font-bold ${CABIN_BADGE_CLASS[cabin]}`}
     >
       {CABIN_LABELS[cabin]}
     </span>

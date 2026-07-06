@@ -7,6 +7,7 @@ import {
   type Settings as SettingsType,
 } from '@rate-pirate/shared';
 import { api } from '../api/client';
+import { CABIN_CHIP_SELECTED_CLASS } from '../cabinStyle';
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
@@ -105,7 +106,7 @@ export default function Settings() {
                   aria-pressed={selected}
                   className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${
                     selected
-                      ? 'border-brand bg-brand text-white'
+                      ? CABIN_CHIP_SELECTED_CLASS[cabin]
                       : 'border-gray-300 bg-white text-gray-600'
                   }`}
                   onClick={() => toggleCabin(cabin)}
