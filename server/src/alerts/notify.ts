@@ -57,6 +57,7 @@ export async function maybeAlert(
     score: deal.score,
     departDate: deal.departDate,
     returnDate: deal.returnDate,
+    seenAt: asOf,
   };
 
   const summary =

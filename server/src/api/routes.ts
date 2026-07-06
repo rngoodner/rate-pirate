@@ -267,6 +267,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       score: 93,
       departDate: '2026-08-18',
       returnDate: '2026-08-26',
+      seenAt: sqliteStamp(new Date()),
     };
     // Stamp each test with the current time so repeats aren't byte-identical —
     // otherwise mail providers thread/dedupe/spam-filter the copies and only the

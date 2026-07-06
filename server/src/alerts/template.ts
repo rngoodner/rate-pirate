@@ -13,6 +13,8 @@ export interface AlertContent {
   score: number;
   departDate: string;
   returnDate: string;
+  /** When the fare was observed — SQLite UTC stamp 'YYYY-MM-DD HH:MM:SS'. */
+  seenAt: string;
 }
 
 export function alertSubject(a: AlertContent): string {
@@ -43,7 +45,11 @@ export function alertHtml(a: AlertContent): string {
        style="display:block;text-align:center;background:#35b6ea;color:#fff;font-weight:700;text-decoration:none;border-radius:12px;padding:14px">
       Book on Google Flights
     </a>
-    <p style="margin:20px 0 0;font-size:12px;color:#9ca3af">
+    <p style="margin:20px 0 8px;font-size:13px;color:#374151">
+      Spotted at ${seenAtLabel(a.seenAt)}. Great fares — especially in premium cabins — can
+      move within hours, so book fast. If it's already gone, at least you've seen what's possible.
+    </p>
+    <p style="margin:0;font-size:12px;color:#9ca3af">
       Prices are indicative, based on recently observed fares — the exact fare is confirmed at booking.
       You're getting this because the price is well below the route's recent norm.
     </p>
@@ -57,6 +63,19 @@ function usd(cents: number): string {
 
 function pct(fraction: number): string {
   return `${Math.round(fraction * 100)}%`;
+}
+
+/** Friendly local time for a SQLite UTC stamp, e.g. "Jul 6, 5:16 PM MDT". */
+function seenAtLabel(sqliteUtc: string): string {
+  const d = new Date(sqliteUtc.replace(' ', 'T') + 'Z');
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    timeZone: 'America/Denver',
+  });
 }
 
 function monthLabel(month: string): string {
