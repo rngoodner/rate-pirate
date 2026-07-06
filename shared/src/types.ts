@@ -100,6 +100,12 @@ export interface Settings {
   scanEnabled: boolean;
   /** Cabins to monitor; at least one. More cabins = slower scan cadence. */
   monitoredCabins: Cabin[];
+  /** Hard floor: never alert on less than this discount (0..1 fraction). */
+  alertMinDiscount: number;
+  /** Days without re-alerting the same route-month (unless the price deepens). */
+  alertCooldownDays: number;
+  /** How many months ahead to scan; scales the scan universe. */
+  scanHorizonMonths: number;
 }
 
 export interface ScanStatus {

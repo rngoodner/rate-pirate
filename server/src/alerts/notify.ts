@@ -4,11 +4,9 @@ import { getDestination, lastAlertForDeal, recordAlert, type DealRow } from '../
 import type { EmailSender } from './email.js';
 import { alertHtml, alertSubject } from './template.js';
 
-/** Hard floor: never alert on less than this discount, whatever the score says. */
-const MIN_DISCOUNT = 0.2;
-/** Days without re-alerting the same route-month... */
-const COOLDOWN_DAYS = 7;
-/** ...unless the price has dropped this much below the last alerted price. */
+/** Cooldown ends early only when the price drops this far below the last
+ *  alerted price. The discount floor and cooldown length live in Settings
+ *  (alertMinDiscount, alertCooldownDays). */
 const DEEPENING_FACTOR = 0.9;
 
 export type SkipReason =
@@ -32,14 +30,15 @@ export async function maybeAlert(
   asOf: string,
 ): Promise<NotifyResult> {
   if (deal.score < settings.alertThreshold) return { sent: false, reason: 'below_threshold' };
-  if (deal.discountPct < MIN_DISCOUNT) return { sent: false, reason: 'below_min_discount' };
+  if (deal.discountPct < settings.alertMinDiscount)
+    return { sent: false, reason: 'below_min_discount' };
   const recipients = parseRecipients(settings.alertEmail);
   if (recipients.length === 0) return { sent: false, reason: 'no_recipient' };
 
   const last = lastAlertForDeal(db, deal.id);
   if (last) {
     const ageMs = Date.parse(asOf.replace(' ', 'T') + 'Z') - Date.parse(last.sentAt.replace(' ', 'T') + 'Z');
-    const inCooldown = ageMs < COOLDOWN_DAYS * 86_400_000;
+    const inCooldown = ageMs < settings.alertCooldownDays * 86_400_000;
     const deepened = deal.bestPriceCents <= last.priceCents * DEEPENING_FACTOR;
     if (inCooldown && !deepened) return { sent: false, reason: 'cooldown' };
   }

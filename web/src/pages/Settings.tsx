@@ -157,6 +157,8 @@ export default function Settings() {
           </div>
         )}
 
+        <Advanced settings={settings} setSettings={setSettings} save={save} />
+
         <button
           className="rounded-2xl bg-brand py-3.5 font-bold text-white active:opacity-80"
           onClick={async () => {
@@ -183,5 +185,149 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <p className="mb-1 text-sm text-gray-500">{label}</p>
       {children}
     </div>
+  );
+}
+
+/** Collapsed-by-default disclosure for tunables most users never touch.
+ *  Defaults match the server's built-ins, so nothing here needs changing
+ *  for normal operation. */
+function Advanced({
+  settings,
+  setSettings,
+  save,
+}: {
+  settings: SettingsType;
+  setSettings: (s: SettingsType) => void;
+  save: (patch: Partial<SettingsType>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-2xl bg-white shadow-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between p-4"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="font-bold">Advanced</span>
+        <span
+          aria-hidden
+          className={`text-lg text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}
+        >
+          ›
+        </span>
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-4 border-t border-gray-100 p-4">
+          <AdvField
+            label="Daily call budget"
+            hint="One call = one Google Flights page load. Rule of thumb: at least (destinations × horizon months × cabins) ÷ 5, so every route gets enough captures to form a baseline. Stay under ~500/day to keep scraping friendly."
+          >
+            <NumberInput
+              value={settings.dailyCallBudget}
+              min={4}
+              max={5000}
+              onCommit={(n) => save({ dailyCallBudget: n })}
+            />
+          </AdvField>
+
+          <AdvField
+            label={`Alert minimum discount — ${Math.round(settings.alertMinDiscount * 100)}%`}
+            hint="Emails require BOTH a score above the alert threshold AND a discount at least this far below the baseline."
+          >
+            <input
+              className="w-full accent-brand"
+              type="range"
+              min={5}
+              max={50}
+              value={Math.round(settings.alertMinDiscount * 100)}
+              onChange={(e) =>
+                setSettings({ ...settings, alertMinDiscount: Number(e.target.value) / 100 })
+              }
+              onPointerUp={() => save({ alertMinDiscount: settings.alertMinDiscount })}
+              onKeyUp={() => save({ alertMinDiscount: settings.alertMinDiscount })}
+            />
+          </AdvField>
+
+          <AdvField
+            label="Re-alert cooldown (days)"
+            hint="Days before the same route-month can alert again. A drop ≥10% below the last alerted price re-alerts sooner."
+          >
+            <NumberInput
+              value={settings.alertCooldownDays}
+              min={1}
+              max={30}
+              onCommit={(n) => save({ alertCooldownDays: n })}
+            />
+          </AdvField>
+
+          <AdvField
+            label="Scan horizon (months)"
+            hint="How many months ahead to watch. A longer horizon finds deals further out but grows the scan universe, so each route refreshes less often at the same budget."
+          >
+            <NumberInput
+              value={settings.scanHorizonMonths}
+              min={2}
+              max={9}
+              onCommit={(n) => save({ scanHorizonMonths: n })}
+            />
+          </AdvField>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdvField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-sm text-gray-500">{label}</p>
+      {children}
+      <p className="mt-1 text-xs text-gray-400">{hint}</p>
+    </div>
+  );
+}
+
+/** Commit-on-blur integer input; clamps to [min, max] and snaps the field
+ *  back to the clamped value so what you see is what was saved. */
+function NumberInput({
+  value,
+  min,
+  max,
+  onCommit,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (n: number) => void;
+}) {
+  return (
+    <input
+      className="w-full bg-transparent text-lg font-bold outline-none"
+      type="number"
+      inputMode="numeric"
+      defaultValue={value}
+      min={min}
+      max={max}
+      onBlur={(e) => {
+        const n = Math.round(Number(e.target.value));
+        if (!Number.isFinite(n)) {
+          e.target.value = String(value);
+          return;
+        }
+        const clamped = Math.min(max, Math.max(min, n));
+        e.target.value = String(clamped);
+        if (clamped !== value) onCommit(clamped);
+      }}
+    />
   );
 }

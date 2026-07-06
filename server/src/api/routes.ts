@@ -21,7 +21,7 @@ import {
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
-import { runScanBatch, HORIZON_MONTHS } from '../scanner/scan.js';
+import { runScanBatch } from '../scanner/scan.js';
 import { alertHtml, alertSubject } from '../alerts/template.js';
 
 const settingsPatchSchema = z
@@ -38,6 +38,9 @@ const settingsPatchSchema = z
       .array(z.enum(CABINS))
       .nonempty('select at least one cabin')
       .transform((cabins) => [...new Set(cabins)]),
+    alertMinDiscount: z.number().min(0.05).max(0.5),
+    alertCooldownDays: z.number().int().min(1).max(30),
+    scanHorizonMonths: z.number().int().min(2).max(9),
   })
   .partial()
   .strict();
@@ -126,17 +129,22 @@ export function apiRoutes(deps: AppDeps): Hono {
     const settings = getSettings(db, config);
     // Universe scales with the number of cabins actually monitored.
     const universe =
-      activeDestinations(db).length * HORIZON_MONTHS * settings.monitoredCabins.length;
+      activeDestinations(db).length * settings.scanHorizonMonths * settings.monitoredCabins.length;
     const status: ScanStatus = {
       provider: deps.provider.name,
       lastScanAt: lastApiCallAt(db, deps.provider.name),
       callsToday: apiCallsToday(db, deps.provider.name),
       dailyCallBudget: settings.dailyCallBudget,
+      // Clamp: history can hold baselines for months beyond a freshly-shrunk
+      // horizon, which would push the ratio past 1.
       baselineCoverage:
         universe === 0
           ? 0
-          : routeMonthsWithBaseline(db, deps.provider.name, settings.homeAirport, settings.monitoredCabins) /
-            universe,
+          : Math.min(
+              1,
+              routeMonthsWithBaseline(db, deps.provider.name, settings.homeAirport, settings.monitoredCabins) /
+                universe,
+            ),
       activeDeals: activeDealsWithPlace(db, deps.provider.name, settings.monitoredCabins).length,
     };
     return c.json(status);

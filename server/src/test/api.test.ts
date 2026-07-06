@@ -107,6 +107,33 @@ describe('API routes', () => {
     expect(unknownKey.status).toBe(400);
   });
 
+  it('PUT /api/settings accepts advanced tunables and enforces bounds', async () => {
+    const { app } = makeApp();
+    const ok = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alertMinDiscount: 0.1, alertCooldownDays: 3, scanHorizonMonths: 4 }),
+    });
+    expect(ok.status).toBe(200);
+    const updated = (await ok.json()) as Settings;
+    expect(updated.alertMinDiscount).toBe(0.1);
+    expect(updated.alertCooldownDays).toBe(3);
+    expect(updated.scanHorizonMonths).toBe(4);
+
+    for (const body of [
+      { alertMinDiscount: 0.6 },
+      { alertCooldownDays: 0 },
+      { scanHorizonMonths: 12 },
+    ]) {
+      const bad = await app.request('/api/settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(bad.status).toBe(400);
+    }
+  });
+
   it('GET /api/status reports provider, budget, and coverage', async () => {
     const { app } = makeApp();
     const res = await app.request('/api/status');

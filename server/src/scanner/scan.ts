@@ -12,7 +12,6 @@ import { getSettings } from '../db/settings.js';
 import type { FlightPriceProvider, RoundTripQuote } from '../providers/types.js';
 import { planBatch, type RouteMonthTask } from './planner.js';
 
-export const HORIZON_MONTHS = 6;
 /** Cap snapshots stored per scan of one route-month (cheapest first). */
 const MAX_SNAPSHOTS_PER_SCAN = 10;
 
@@ -57,7 +56,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
     cabins: settings.monitoredCabins,
     latestCapture: latestCaptureByRouteMonth(db, provider.name, settings.homeAirport),
     now: now(),
-    horizon: HORIZON_MONTHS,
+    horizon: settings.scanHorizonMonths,
     limit,
   });
 

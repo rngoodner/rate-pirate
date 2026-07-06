@@ -16,6 +16,9 @@ describe('settings', () => {
       dailyCallBudget: 100,
       scanEnabled: true,
       monitoredCabins: ['economy', 'premium_economy'],
+      alertMinDiscount: 0.2,
+      alertCooldownDays: 7,
+      scanHorizonMonths: 6,
     });
   });
 
@@ -33,6 +36,15 @@ describe('settings', () => {
     expect(s.alertThreshold).toBe(90);
     expect(s.scanEnabled).toBe(false);
     expect(s.dailyCallBudget).toBe(100); // untouched key keeps default
+  });
+
+  it('advanced tunables round-trip (including the float discount)', () => {
+    const db = openDb(':memory:');
+    updateSettings(db, { alertMinDiscount: 0.15, alertCooldownDays: 3, scanHorizonMonths: 4 });
+    const s = getSettings(db, config);
+    expect(s.alertMinDiscount).toBe(0.15);
+    expect(s.alertCooldownDays).toBe(3);
+    expect(s.scanHorizonMonths).toBe(4);
   });
 
   it('partial update leaves other keys alone', () => {

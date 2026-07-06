@@ -19,6 +19,9 @@ export function getSettings(db: Db, config: Config): Settings {
     dailyCallBudget: intOr(stored.get('daily_call_budget'), 100),
     scanEnabled: (stored.get('scan_enabled') ?? 'true') === 'true',
     monitoredCabins: parseCabins(stored.get('monitored_cabins')),
+    alertMinDiscount: floatOr(stored.get('alert_min_discount'), 0.2),
+    alertCooldownDays: intOr(stored.get('alert_cooldown_days'), 7),
+    scanHorizonMonths: intOr(stored.get('scan_horizon_months'), 6),
   };
 }
 
@@ -41,6 +44,9 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
     monitored_cabins: patch.monitoredCabins
       ? CABINS.filter((c) => patch.monitoredCabins!.includes(c)).join(',')
       : undefined,
+    alert_min_discount: patch.alertMinDiscount?.toString(),
+    alert_cooldown_days: patch.alertCooldownDays?.toString(),
+    scan_horizon_months: patch.scanHorizonMonths?.toString(),
   };
   const upsert = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
@@ -55,5 +61,10 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
 
 function intOr(value: string | undefined, fallback: number): number {
   const n = value === undefined ? NaN : Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function floatOr(value: string | undefined, fallback: number): number {
+  const n = value === undefined ? NaN : Number.parseFloat(value);
   return Number.isFinite(n) ? n : fallback;
 }

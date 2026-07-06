@@ -12,6 +12,9 @@ const settings: Settings = {
   dailyCallBudget: 500,
   scanEnabled: true,
   monitoredCabins: ['economy'],
+  alertMinDiscount: 0.2,
+  alertCooldownDays: 7,
+  scanHorizonMonths: 6,
 };
 
 function fakeSender() {
@@ -117,6 +120,23 @@ describe('maybeAlert', () => {
     const slight = makeDeal(db, { bestPriceCents: 55000, discountPct: 0.45, score: 97 });
     const silenced = await maybeAlert(db, slight, settings, sender, '2026-06-23 08:00:00');
     expect(silenced).toEqual({ sent: false, reason: 'cooldown' });
+  });
+
+  it('honors custom alertMinDiscount and alertCooldownDays from settings', async () => {
+    const db = openDb(':memory:');
+    const { sender, sent } = fakeSender();
+    // A 15% discount fails the default 20% floor but passes a 10% floor.
+    const shallow = makeDeal(db, { score: 90, bestPriceCents: 85000, discountPct: 0.15 });
+    const lenient = { ...settings, alertMinDiscount: 0.1, alertCooldownDays: 2 };
+    const first = await maybeAlert(db, shallow, lenient, sender, '2026-06-20 08:00:00');
+    expect(first.sent).toBe(true);
+
+    // Day 21 is inside the default 7-day cooldown but past the custom 2-day one.
+    const again = await maybeAlert(db, shallow, lenient, sender, '2026-06-21 08:00:00');
+    expect(again).toEqual({ sent: false, reason: 'cooldown' });
+    const afterShortCooldown = await maybeAlert(db, shallow, lenient, sender, '2026-06-22 09:00:00');
+    expect(afterShortCooldown.sent).toBe(true);
+    expect(sent).toHaveLength(2);
   });
 
   it('skips when no recipient is configured', async () => {

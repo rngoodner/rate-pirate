@@ -63,8 +63,8 @@ Scheduled batches run at 06:10, 11:10, 17:10, 22:10 America/Denver.
 ### Adjust the daily call budget
 
 The budget caps how many Google Flights page loads the scanner makes per day
-(resets at local midnight). It has no UI control — set it via the API; it takes
-effect at the next batch, no restart needed:
+(resets at local midnight). Set it in the app under **Settings → Advanced**, or
+via the API; either way it takes effect at the next batch, no restart needed:
 
 ```bash
 curl -s -X PUT -H 'content-type: application/json' \
@@ -162,9 +162,10 @@ Two layers:
 - **`/opt/rate-pirate/.env`** — secrets and machine config (SMTP /
   Resend, provider choice, port, DB path). Edit, then `sudo systemctl restart rate-pirate`.
 - **Settings UI / API** — home airport, alert email (comma-separated for multiple),
-  alert threshold, cabins, scan on/off. In the DB; no restart needed. The daily
-  call budget is also stored here but has no UI control — see "Adjust the daily
-  call budget" above.
+  alert threshold, cabins, scan on/off; under **Advanced**: daily call budget
+  (see "Adjust the daily call budget" above), alert minimum discount (default
+  20%), re-alert cooldown (default 7 days), and scan horizon (default 6 months).
+  All in the DB; no restart needed.
 
 ### Demo mode (mock data)
 
