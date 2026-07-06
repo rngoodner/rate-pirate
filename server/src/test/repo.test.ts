@@ -95,4 +95,21 @@ describe('repo', () => {
     recordApiCall(db, { provider: 'other', endpoint: 'x', ok: true });
     expect(apiCallsToday(db, 'google-flights')).toBe(2);
   });
+
+  it('uses the LOCAL day boundary, not UTC midnight', () => {
+    const db = openDb(':memory:');
+    // A call made 1 minute ago is always "today" local, even when UTC has
+    // already rolled over to the next date (evenings in UTC-negative zones).
+    db.prepare(
+      `INSERT INTO api_calls (provider, endpoint, ok, called_at)
+       VALUES ('google-flights', 'flights-page', 1, datetime('now', '-1 minute'))`,
+    ).run();
+    // A call just before local midnight is "yesterday" and must not count.
+    db.prepare(
+      `INSERT INTO api_calls (provider, endpoint, ok, called_at)
+       VALUES ('google-flights', 'flights-page', 1,
+               datetime(date('now', 'localtime'), 'utc', '-1 minute'))`,
+    ).run();
+    expect(apiCallsToday(db, 'google-flights')).toBe(1);
+  });
 });

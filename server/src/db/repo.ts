@@ -446,15 +446,24 @@ export function recordApiCall(db: Db, c: ApiCallInput): void {
   ).run(c.provider, c.endpoint, c.route ?? null, c.status ?? null, c.ok ? 1 : 0, c.calledAt ?? null);
 }
 
-/** Calls made on the (virtual) current day; day boundary from SQLite's date(). */
+/** Calls made on the current day. The day boundary is the server's LOCAL
+ *  midnight (called_at is stored UTC) — with a UTC boundary the counter and
+ *  the daily budget would reset at 5–6pm in America/Denver. When `asOf` is
+ *  given (simulator virtual clock) timestamps are compared as-is. */
 export function apiCallsToday(db: Db, provider: string, asOf?: string): number {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM api_calls
-       WHERE provider = ? AND called_at >= date(COALESCE(?, 'now'))
-         AND called_at <= COALESCE(?, datetime('now'))`,
-    )
-    .get(provider, asOf ?? null, asOf ?? null) as { n: number };
+  const row = asOf
+    ? (db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM api_calls
+           WHERE provider = ? AND called_at >= date(?) AND called_at <= ?`,
+        )
+        .get(provider, asOf, asOf) as { n: number })
+    : (db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM api_calls
+           WHERE provider = ? AND datetime(called_at, 'localtime') >= date('now', 'localtime')`,
+        )
+        .get(provider) as { n: number });
   return row.n;
 }
 
