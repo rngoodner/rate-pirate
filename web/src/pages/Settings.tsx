@@ -13,6 +13,10 @@ import { useAutoRefresh } from '../useAutoRefresh';
 import { CABIN_CHIP_SELECTED_CLASS } from '../cabinStyle';
 import EmailRecipients from '../components/EmailRecipients';
 
+// Shared so every card's title and helper text look identical.
+const CARD_TITLE = 'text-base font-bold text-gray-900';
+const CARD_DESC = 'text-xs text-gray-500';
+
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [status, setStatus] = useState<ScanStatus | null>(null);
@@ -105,8 +109,8 @@ export default function Settings() {
           className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
         >
           <span>
-            <span className="block text-lg font-bold">Destinations</span>
-            <span className="text-sm text-gray-500">
+            <span className={`block ${CARD_TITLE}`}>Destinations</span>
+            <span className={CARD_DESC}>
               {destCounts ? `${destCounts.active} of ${destCounts.total} scanned` : '…'}
             </span>
           </span>
@@ -136,7 +140,7 @@ export default function Settings() {
               );
             })}
           </div>
-          <p className="mt-2 text-xs text-gray-500">
+          <p className={`mt-2 ${CARD_DESC}`}>
             Each cabin is scanned separately, so monitoring more cabins means each one refreshes
             less often. At least one is required.
           </p>
@@ -177,7 +181,7 @@ export default function Settings() {
             onPointerUp={() => save({ alertThreshold: settings.alertThreshold })}
             onBlur={() => save({ alertThreshold: settings.alertThreshold })}
           />
-          <p className="text-xs text-gray-500">
+          <p className={`mt-2 ${CARD_DESC}`}>
             The 0–100 score blends how rare a price is for the route with how far below typical
             it sits. 85 ≈ top-10% prices, a few emails a month; 95+ = only exceptional fares.
           </p>
@@ -195,7 +199,7 @@ export default function Settings() {
               onChange={(e) => save({ scanEnabled: e.target.checked })}
             />
           </label>
-          <p className="mt-2 text-xs text-gray-500">
+          <p className={`mt-2 ${CARD_DESC}`}>
             Checks prices 4× a day and emails when a deal scores above your threshold and is ≥
             {Math.round(settings.alertMinDiscount * 100)}% below normal (set under Advanced).
             Turning off pauses checks and alerts; price history is kept.
@@ -204,7 +208,7 @@ export default function Settings() {
 
         {status && (
           <div className="rounded-2xl bg-white p-4 text-sm text-gray-600 shadow-sm">
-            <p className="mb-1 font-bold text-gray-900">Status</p>
+            <p className={`mb-1.5 ${CARD_TITLE}`}>Status</p>
             <p>Provider: {status.provider}</p>
             <p>Last scan: {status.lastScanAt ? timeAgo(status.lastScanAt) : 'never'}</p>
             <p>Next scan: {status.nextBatchAt ? timeUntil(status.nextBatchAt) : 'paused'}</p>
@@ -239,7 +243,7 @@ export default function Settings() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl bg-white p-4 shadow-sm">
-      <p className="mb-1 text-sm text-gray-500">{label}</p>
+      <p className={`mb-1.5 ${CARD_TITLE}`}>{label}</p>
       {children}
     </div>
   );
@@ -278,7 +282,7 @@ function ActivityLog({
         className="flex w-full items-center justify-between p-4"
         onClick={() => setOpen(!open)}
       >
-        <span className="flex items-center gap-2 font-bold">
+        <span className={`flex items-center gap-2 ${CARD_TITLE}`}>
           Activity log
           {errorCount > 0 && (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
@@ -401,7 +405,7 @@ function Advanced({
         className="flex w-full items-center justify-between p-4"
         onClick={() => setOpen(!open)}
       >
-        <span className="font-bold">Advanced</span>
+        <span className={CARD_TITLE}>Advanced</span>
         <span
           aria-hidden
           className={`text-lg text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}
@@ -498,7 +502,7 @@ function Advanced({
             >
               {scanBusy ? 'Requesting…' : 'Run scan batch now'}
             </button>
-            <p className="mt-1 text-xs text-gray-400">
+            <p className={`mt-2 ${CARD_DESC}`}>
               Runs one batch (a quarter of the daily budget) immediately instead of waiting for
               the next scheduled scan. Progress and results appear in the Activity log.
             </p>
@@ -520,9 +524,9 @@ function AdvField({
 }) {
   return (
     <div>
-      <p className="mb-1 text-sm text-gray-500">{label}</p>
+      <p className={`mb-1.5 ${CARD_TITLE}`}>{label}</p>
       {children}
-      <p className="mt-1 text-xs text-gray-400">{hint}</p>
+      <p className={`mt-2 ${CARD_DESC}`}>{hint}</p>
     </div>
   );
 }
