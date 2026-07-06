@@ -140,7 +140,6 @@ export const DESTINATION_CATALOG: CatalogEntry[] = [
   { iata: 'FNC', city: 'Madeira', country: 'Portugal', region: 'europe', tier: 3 },
   { iata: 'PVG', city: 'Shanghai', country: 'China', region: 'asia', tier: 3 },
   { iata: 'PEK', city: 'Beijing', country: 'China', region: 'asia', tier: 3 },
-  { iata: 'SAI', city: 'Siem Reap', country: 'Cambodia', region: 'asia', tier: 3 },
   { iata: 'MLE', city: 'Malé', country: 'Maldives', region: 'asia', tier: 3 },
   { iata: 'GUA', city: 'Guatemala City', country: 'Guatemala', region: 'americas', tier: 3 },
   { iata: 'ZNZ', city: 'Zanzibar', country: 'Tanzania', region: 'africa', tier: 3 },
