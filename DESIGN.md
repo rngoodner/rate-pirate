@@ -13,7 +13,7 @@ Rate Pirate is a single-user, mobile-first web app that monitors round-trip flig
 | Concern | Decision |
 |---|---|
 | Language | TypeScript everywhere |
-| Flight data | **Google Flights via headless Chrome** (free, real-time, full ABQ coverage). Amadeus was the original pick but its self-service portal is decommissioned 2026-07-17. Travelpayouts was the first replacement, but a measured coverage probe found ~2% of ABQ route-months in its cache (vs 67% for LAX) — its client remains as an optional fallback. |
+| Flight data | **Google Flights via headless Chrome** (free, real-time, full ABQ coverage). Amadeus was the original pick (self-service portal decommissioned 2026-07-17); Travelpayouts was the first replacement but a coverage probe found ~2% of ABQ route-months in its cache (vs 67% for LAX) and it was removed. `mock` is the only other provider — synthetic data for demos/tests. |
 | Email | Resend |
 | Users | Single user, no auth; settings editable in UI |
 | Booking | None — link out to Google Flights |
@@ -25,7 +25,7 @@ Rate Pirate is a single-user, mobile-first web app that monitors round-trip flig
 
 One Node process: **Hono** serves the JSON API and the built static frontend on port **3789**; **better-sqlite3** for storage (single DB file); **node-cron** drives the scanner; frontend is **React + Vite + Tailwind**, PWA-lite (manifest + icons, no service worker in v1). npm workspaces: `shared/` (wire types), `server/`, `web/`, plus `deploy/`.
 
-**Data-source note:** The primary provider (`providers/google-flights.ts`) drives **headless Chrome (puppeteer-core)** to a Google Flights results page — one page load per route-month, using a representative date pair (2nd Saturday, 7 nights) — and reads prices/stops/carrier from the results' **aria-labels** (`"From 885 US dollars round trip total. 1 stop flight with Delta. …"`), the most stable surface Google exposes since screen readers depend on it. Politeness: 4–7s jittered gaps between loads, modest daily budget (default 100), browser closed after 3 idle minutes. Google's transient "Oops, something went wrong" page is detected and retried once. Chrome/Chromium path auto-detected (macOS app / Debian `apt install chromium`), overridable via `CHROME_PATH`. The provider sits behind a swappable interface with a mock implementation so development and tests never depend on the network; `providers/travelpayouts.ts` remains as an optional fallback (`PROVIDER=travelpayouts`).
+**Data-source note:** The primary provider (`providers/google-flights.ts`) drives **headless Chrome (puppeteer-core)** to a Google Flights results page — one page load per route-month, using a representative date pair (2nd Saturday, 7 nights) — and reads prices/stops/carrier from the results' **aria-labels** (`"From 885 US dollars round trip total. 1 stop flight with Delta. …"`), the most stable surface Google exposes since screen readers depend on it. Politeness: 4–7s jittered gaps between loads, modest daily budget (default 100), browser closed after 3 idle minutes. Google's transient "Oops, something went wrong" page is detected and retried once. Chrome/Chromium path auto-detected (macOS app / Debian `apt install chromium`), overridable via `CHROME_PATH`. The provider sits behind a swappable interface with a synthetic mock implementation (`PROVIDER=mock`) so development, tests, and demos never depend on the network.
 
 ### Repository layout
 
@@ -42,7 +42,7 @@ rate-pirate/
 │   │   ├── app.ts                # Hono assembly: /api routes + static serve of web/dist
 │   │   ├── db/                   # db.ts (WAL, migrations), migrations/001_init.sql,
 │   │   │                         # settings.ts (DB → env → default), repo.ts (all queries)
-│   │   ├── providers/            # types.ts (interface), travelpayouts.ts, mock.ts, fixtures/*.json
+│   │   ├── providers/            # types.ts (interface), google-flights.ts, mock.ts
 │   │   ├── scanner/              # destinations.ts, planner.ts, scan.ts, quota.ts, scheduler.ts
 │   │   ├── deals/                # baseline.ts, score.ts, detect.ts   (pure logic)
 │   │   ├── alerts/               # email.ts (Resend), template.ts, notify.ts (cooldown)
@@ -87,7 +87,7 @@ CREATE TABLE price_snapshots (
   price_cents  INTEGER NOT NULL,        -- cheapest round-trip found, USD cents
   stops        INTEGER,
   carrier      TEXT,
-  source       TEXT NOT NULL,           -- google-flights | travelpayouts | mock
+  source       TEXT NOT NULL,           -- google-flights | mock
   captured_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_snap_cabin ON price_snapshots(source, origin, destination, travel_month, cabin, captured_at);
@@ -139,9 +139,8 @@ interface FlightPriceProvider {
 }
 ```
 
-- **travelpayouts.ts** — small hand-rolled client. `GET https://api.travelpayouts.com/aviasales/v3/prices_for_dates?origin=…&destination=…&departure_at=YYYY-MM&return_at=YYYY-MM&currency=usd&sorting=price&one_way=false&limit=30` with `X-Access-Token` header (free token from the Travelpayouts dashboard). Maps results (price, departure_at, return_at, airline, transfers) to `RoundTripQuote[]`; empty `data` → `[]` (normal for thin routes — cache holds only recently-searched itineraries). One retry with backoff on 429/5xx; polite ≥200ms inter-call delay; every call logged to `api_calls`.
-- **mock.ts** — two modes: fixture replay (recorded real responses in `fixtures/`) and deterministic seeded synthetic prices (regional base price + seasonal curve + noise + injectable deal drops) so the simulator can fast-forward months of history in milliseconds.
-- Selection via `PROVIDER=travelpayouts|mock`; defaults to mock when `TRAVELPAYOUTS_TOKEN` is absent.
+- **mock.ts** (`SyntheticProvider`) — deterministic seeded synthetic prices (per-route base × cabin factor × seasonal curve × noise + injectable deal drops) so the simulator and demo seed can fast-forward months of history in milliseconds. Same seed + date + cabin → same quotes.
+- Selection via `PROVIDER=google-flights|mock`; defaults to mock. See §9 for how demo (mock) and live (google-flights) data are kept fully separate.
 
 ## 5. Scanning & quota strategy
 
@@ -204,14 +203,14 @@ Three screens, styled after `ui-samples/`:
 - **nginx** server block on a free port (e.g. 8081) → `proxy_pass http://127.0.0.1:3789`.
 - **deploy.sh**: build web+server locally → rsync `server/dist`, `web/dist`, package manifests, migrations to `your-server.local:/opt/rate-pirate` → `npm ci --omit=dev` on the server (native better-sqlite3 builds on matching arch) → `systemctl restart rate-pirate`.
 - DB at `/opt/rate-pirate/data/rate-pirate.db`; nightly `sqlite3 .backup` cron on the host.
-- Provider needs only `TRAVELPAYOUTS_TOKEN` in the server's `.env` — same token in dev and prod.
+- Provider is `google-flights` in prod (needs Chromium on the host); `mock` seeds synthetic demo data. **Demo/live separation:** booting with `PROVIDER=mock` auto-seeds 14 days of synthetic history for *all four cabins* (so toggling cabins shows data instantly) if any cabin lacks a baseline; booting with `PROVIDER=google-flights` purges every mock row so only real scraped data remains. The two never mix (all snapshot/deal/status queries are scoped by `source`).
 
 ## 10. Implementation phases & verification
 
 | Phase | Scope | Verification |
 |---|---|---|
 | **0 — Scaffold** (½d) | git init; workspaces, tsconfig, ESLint/Prettier, vitest; Hono `/api/health`; Vite shell + TabBar; shared types; `.env.example`; update CLAUDE.md with real commands | `npm run dev` (UI + proxied health); `npm test`; `npm run build && npm start` serves SPA on 3789 |
-| **1 — Storage + providers** (1d) | schema/migrations, settings precedence, destination seed, repo; provider interface, mock, Travelpayouts client; `record-fixtures.ts` | unit tests on temp DB; mock determinism; **one live smoke (~10 calls)** recording fixtures for 3 routes — confirms token, response shape, and how well ABQ routes are covered in the Aviasales cache |
+| **1 — Storage + providers** (1d) | schema/migrations, settings precedence, destination seed, repo; provider interface, mock, Google Flights scraper | unit tests on temp DB; mock determinism; live smoke via `scripts/gf-smoke.ts` (a few real page loads) |
 | **2 — Scanner** (1d) | planner, quota guard, batch exec, cron, pruning, `POST /api/scan` | planner/quota unit tests; 30-virtual-day simulator asserting per-tier cadence and calls ≤ budget; zero live calls |
 | **3 — Deals + email** (1d) | baseline/score/detect/notify; Resend client + template; `seed-history.ts` | pure-fn edge cases; fake-clock cooldown tests; simulator: 40% drop on day 45 → exactly one alert, re-alert only on deepening; one real test email |
 | **4 — API** (½d) | all routes, zod, error handling | `app.request()` tests against seeded temp DB |
@@ -222,10 +221,10 @@ Three screens, styled after `ui-samples/`:
 
 ## 11. Risks & open items
 
-1. **Google Flights scraping fragility** — Google can change page internals or challenge automated traffic. Mitigations: aria-labels are the most change-resistant surface; volume is tiny (~100 loads/day, jittered); transient-error retry built in; failures surface in `api_calls` and `/api/status`. If it ever breaks hard, the `FlightPriceProvider` seam keeps the blast radius to one file (this project has already survived two provider deaths: Amadeus decommissioned its self-service portal mid-build, and Travelpayouts turned out to have ~2% ABQ coverage).
+1. **Google Flights scraping fragility** — Google can change page internals or challenge automated traffic. Mitigations: aria-labels are the most change-resistant surface; volume is tiny (~100 loads/day, jittered); transient-error retry built in; failures surface in `api_calls` and `/api/status`. If it ever breaks hard, the `FlightPriceProvider` seam keeps the blast radius to one file (this project already outlived two providers: Amadeus decommissioned its self-service portal mid-build, and Travelpayouts turned out to have ~2% ABQ coverage and was removed).
 2. **One date pair per route-month** — the representative-dates heuristic (2nd Saturday, 7 nights) samples one itinerary shape; deals tied to other patterns (mid-week, long stays) go unseen. Acceptable v1 trade-off; the date-grid view (~49 pairs per page load) is the natural upgrade if wanted.
 3. **Premium-cabin scrape query — verified for business/first, phrasing matters.** The provider appends `in <cabin>` (e.g. `… in business class`) to the query. This was verified live: `in business class` on JFK-LHR returned $3,777 and `in first class` $6,434–7,798, vs `$610–1,006` economy — correct, correctly-parsed premium fares. **The leading "in" is load-bearing** — a bare `business class` returns no results; Google's query parser only applies the cabin filter with the "in" form. Premium economy uses the identical code path but couldn't get a clean live read (the dev machine was progressively throttled by Google — the *same* query flips between real results, blank pages, and the "Oops" error regardless of IP/VPN). First production scan should still spot-check that premium-economy snapshots return plausibly-higher-than-economy prices. If Google ever stops honoring the NL phrase, the fallback is the `tfs` protobuf cabin field — a one-file change in `google-flights.ts`.
 3. **Resend sender identity** — without a verified domain, Resend sends only from `onboarding@resend.dev` to the account owner's address. Fine for self-alerts; verify proton.me deliverability in Phase 3, else verify a domain.
 4. **Indicative prices** — cached quotes can differ from live checkout prices; the Google Flights link is the source of truth for purchase. Noted in the email footer.
 5. **Cold start** — first ~2 weeks are collect-only per route; StatusBanner and `/api/status` coverage % keep this legible.
-6. **Travel-month horizon** (6 months default) — one constant in `planner.ts`; widening it is cheap under Travelpayouts limits but grows the snapshot table.
+6. **Travel-month horizon** (6 months default) — one constant in `planner.ts`; widening it grows the scan universe (already ×cabins) and the snapshot table.

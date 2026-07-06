@@ -1,9 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Cabin } from '@rate-pirate/shared';
 import type { FlightPriceProvider, MonthQuery, RoundTripQuote } from './types.js';
-import { mapTpResponse, type TpResponse } from './travelpayouts.js';
 
 /** Rough real-world round-trip price multipliers relative to economy. */
 const CABIN_PRICE_FACTOR: Record<Cabin, number> = {
@@ -12,20 +8,6 @@ const CABIN_PRICE_FACTOR: Record<Cabin, number> = {
   business: 3.6,
   first: 5.5,
 };
-
-const fixturesDir = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures');
-
-/** Replays raw Travelpayouts responses recorded by scripts/record-fixtures.ts. */
-export class FixtureProvider implements FlightPriceProvider {
-  readonly name = 'mock';
-
-  async monthQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
-    const file = join(fixturesDir, `${q.origin}-${q.destination}-${q.month}.json`);
-    if (!existsSync(file)) return [];
-    const raw = JSON.parse(readFileSync(file, 'utf8')) as TpResponse;
-    return mapTpResponse(raw, q);
-  }
-}
 
 export interface SyntheticOptions {
   seed?: number;

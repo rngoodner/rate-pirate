@@ -8,9 +8,8 @@ declare const document: {
   body: { innerText: string };
 };
 import { CABIN_QUERY_PHRASE } from '@rate-pirate/shared';
-import type { FlightPriceProvider, MonthQuery, RoundTripQuote } from './types.js';
+import type { CallLog, FlightPriceProvider, MonthQuery, RoundTripQuote } from './types.js';
 import { ProviderError } from './types.js';
-import type { CallLog } from './travelpayouts.js';
 
 /** Scrapes Google Flights result pages with headless Chrome and reads prices
  *  from aria-labels — the most stable surface Google exposes (screen readers

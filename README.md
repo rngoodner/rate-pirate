@@ -82,9 +82,10 @@ Two layers:
 
 To show the app with a fully populated feed (e.g. before enough live history has
 accumulated), set `PROVIDER=mock` in `.env` and restart the service. On boot the
-app auto-seeds 14 days of synthetic price history and deals — the UI is populated
-immediately. Live data keeps its own lane: it is neither shown nor touched while
-in demo mode.
+app auto-seeds 14 days of synthetic price history and deals **for all four cabins**
+— the UI is populated immediately, and toggling cabins in Settings shows demo data
+for any cabin instantly. Live data keeps its own lane: it is neither shown nor
+touched while in demo mode.
 
 To go (back) live, set `PROVIDER=google-flights` and restart — all mock data is
 purged automatically on boot and only real history is shown. Mock and live data

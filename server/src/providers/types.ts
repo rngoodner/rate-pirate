@@ -31,6 +31,14 @@ export interface FlightPriceProvider {
   monthQuotes(q: MonthQuery): Promise<RoundTripQuote[]>;
 }
 
+/** One provider request, logged to the api_calls table for quota/debugging. */
+export interface CallLog {
+  endpoint: string;
+  route: string;
+  status?: number;
+  ok: boolean;
+}
+
 export class ProviderError extends Error {
   constructor(
     message: string,

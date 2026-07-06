@@ -10,8 +10,8 @@ dotenv.config({ quiet: true }); // also honor a cwd-local .env if present
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3789),
   DB_PATH: z.string().default('./data/rate-pirate.db'),
-  PROVIDER: z.enum(['google-flights', 'travelpayouts', 'mock']).optional(),
-  TRAVELPAYOUTS_TOKEN: z.string().optional(),
+  // 'google-flights' = live scraping; 'mock' = synthetic demo data.
+  PROVIDER: z.enum(['google-flights', 'mock']).default('mock'),
   CHROME_PATH: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   ALERT_EMAIL_FROM: z.string().default('onboarding@resend.dev'),
@@ -21,10 +21,5 @@ const envSchema = z.object({
 export type Config = ReturnType<typeof loadConfig>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
-  const parsed = envSchema.parse(env);
-  return {
-    ...parsed,
-    // Default to the real provider only when a token is present.
-    PROVIDER: parsed.PROVIDER ?? (parsed.TRAVELPAYOUTS_TOKEN ? 'travelpayouts' : 'mock'),
-  };
+  return envSchema.parse(env);
 }

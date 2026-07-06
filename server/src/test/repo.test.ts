@@ -90,9 +90,9 @@ describe('repo', () => {
 
   it('counts api calls made today', () => {
     const db = openDb(':memory:');
-    recordApiCall(db, { provider: 'travelpayouts', endpoint: 'prices_for_dates', ok: true });
-    recordApiCall(db, { provider: 'travelpayouts', endpoint: 'prices_for_dates', ok: false, status: 429 });
+    recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: true });
+    recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: false, status: 429 });
     recordApiCall(db, { provider: 'other', endpoint: 'x', ok: true });
-    expect(apiCallsToday(db, 'travelpayouts')).toBe(2);
+    expect(apiCallsToday(db, 'google-flights')).toBe(2);
   });
 });

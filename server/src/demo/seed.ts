@@ -1,4 +1,4 @@
-import type { Cabin } from '@rate-pirate/shared';
+import { CABINS, type Cabin } from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
 import { activeDestinations, insertSnapshot } from '../db/repo.js';
 import { processRouteMonth } from '../deals/detect.js';
@@ -42,7 +42,8 @@ async function seedDays(
 ): Promise<{ snapshots: number; days: number }> {
   const days = opts.days ?? 14;
   const origin = opts.homeAirport ?? 'ABQ';
-  const cabins = opts.cabins ?? ['economy', 'premium_economy'];
+  // Seed every cabin so toggling cabins in the demo shows data immediately.
+  const cabins = opts.cabins ?? [...CABINS];
   const destinations = activeDestinations(db);
   const start = Date.now() - days * DAY;
 
@@ -89,15 +90,13 @@ async function seedDays(
   return { snapshots, days };
 }
 
-/** True when the existing mock history can't support baselines — fresh DB,
- *  leftover partial data, or a seed old enough to have aged out of the 60-day
- *  baseline window. Callers should purge mock data before reseeding. */
+/** True when the existing mock history can't support baselines for every cabin
+ *  — fresh DB, leftover partial/economy-only data (e.g. pre-cabin snapshots), or
+ *  a seed aged past the 60-day baseline window. Callers purge before reseeding. */
 export function needsDemoSeed(db: Db): boolean {
-  const row = db
-    .prepare(
-      `SELECT COUNT(DISTINCT date(captured_at)) AS n FROM price_snapshots
-       WHERE source = 'mock' AND captured_at >= datetime('now', '-60 days')`,
-    )
-    .get() as { n: number };
-  return row.n < 10;
+  const stmt = db.prepare(
+    `SELECT COUNT(DISTINCT date(captured_at)) AS n FROM price_snapshots
+     WHERE source = 'mock' AND cabin = ? AND captured_at >= datetime('now', '-60 days')`,
+  );
+  return CABINS.some((cabin) => (stmt.get(cabin) as { n: number }).n < 10);
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { SyntheticProvider } from '../providers/mock.js';
-import { mapTpResponse, type TpResponse } from '../providers/travelpayouts.js';
 
 describe('SyntheticProvider', () => {
   const q = { origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, month: '2026-08' };
@@ -48,56 +47,15 @@ describe('SyntheticProvider', () => {
     expect(b[0]!.priceCents).toBeLessThan(a[0]!.priceCents);
     expect(b[0]!.priceCents / a[0]!.priceCents).toBeCloseTo(0.5, 1);
   });
-});
 
-describe('mapTpResponse', () => {
-  const q = { origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, month: '2026-08' };
-
-  it('maps tickets and converts price to cents', () => {
-    const res: TpResponse = {
-      success: true,
-      currency: 'usd',
-      data: [
-        {
-          origin: 'ABQ',
-          destination: 'NAP',
-          departure_at: '2026-08-18T07:00:00-06:00',
-          return_at: '2026-08-26T09:05:00+02:00',
-          price: 758.4,
-          airline: 'KL',
-          transfers: 1,
-        },
-      ],
-    };
-    expect(mapTpResponse(res, q)).toEqual([
-      {
-        origin: 'ABQ',
-        destination: 'NAP',
-        cabin: 'economy',
-        departDate: '2026-08-18',
-        returnDate: '2026-08-26',
-        priceCents: 75840,
-        currency: 'USD',
-        stops: 1,
-        carrier: 'KL',
-      },
-    ]);
-  });
-
-  it('drops one-way tickets and off-month departures', () => {
-    const res: TpResponse = {
-      success: true,
-      currency: 'usd',
-      data: [
-        { origin: 'ABQ', destination: 'NAP', departure_at: '2026-08-18T07:00:00Z', price: 400, airline: 'AA', transfers: 1 },
-        { origin: 'ABQ', destination: 'NAP', departure_at: '2026-09-02T07:00:00Z', return_at: '2026-09-09T10:00:00Z', price: 700, airline: 'AA', transfers: 1 },
-      ],
-    };
-    expect(mapTpResponse(res, q)).toEqual([]);
-  });
-
-  it('returns [] for unsuccessful or empty responses', () => {
-    expect(mapTpResponse({ success: false, currency: 'usd', data: [] }, q)).toEqual([]);
-    expect(mapTpResponse({ success: true, currency: 'usd', data: [] }, q)).toEqual([]);
+  it('scales price by cabin', async () => {
+    const now = () => new Date('2026-07-05T12:00:00Z');
+    const econ = await new SyntheticProvider({ seed: 3, now }).monthQuotes({ ...q, cabin: 'economy' });
+    const biz = await new SyntheticProvider({ seed: 3, now }).monthQuotes({ ...q, cabin: 'business' });
+    // Business is markedly pricier than economy for the same route/day
+    expect(Math.min(...biz.map((x) => x.priceCents))).toBeGreaterThan(
+      Math.min(...econ.map((x) => x.priceCents)) * 2,
+    );
+    expect(biz.every((x) => x.cabin === 'business')).toBe(true);
   });
 });

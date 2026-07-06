@@ -1,6 +1,6 @@
 /** Reset and re-seed the demo (mock) dataset: wipes mock-source rows only,
  *  then backfills N virtual days of synthetic history and deals.
- *  Live (google-flights/travelpayouts) data is untouched.
+ *  Live (google-flights) data is untouched.
  *  Usage: npx tsx scripts/seed-history.ts [days]
  *  Note: with PROVIDER=mock, the server also auto-seeds on boot if no mock
  *  history exists — this script is only needed to force a fresh demo state. */
