@@ -18,6 +18,7 @@ import {
   dailyMinimaSeries,
   errorsToday,
   getDealWithPlace,
+  getPriceInsights,
   lastApiCallAt,
   recentDateOptions,
   recentEvents,
@@ -68,6 +69,7 @@ function toWireDeal(d: DealWithPlace): Deal {
     firstSeenAt: d.firstSeenAt,
     lastSeenAt: d.lastSeenAt,
     status: d.status,
+    baselineSource: d.baselineSource,
   };
 }
 
@@ -101,17 +103,26 @@ export function apiRoutes(deps: AppDeps): Hono {
       7,
       20,
     );
+    // Chart our own history once it has some shape; before that, Google's
+    // series (captured at scan time) is the better picture.
+    const observed = dailyMinimaSeries(
+      db,
+      deal.source,
+      deal.origin,
+      deal.destination,
+      deal.cabin,
+      deal.travelMonth,
+      60,
+    );
+    const insights =
+      observed.length < 5
+        ? getPriceInsights(db, deal.source, deal.origin, deal.destination, deal.cabin, deal.travelMonth)
+        : null;
+    const useGoogle = observed.length < 5 && (insights?.series.length ?? 0) > 0;
     const detail: DealDetail = {
       ...toWireDeal(deal),
-      priceHistory: dailyMinimaSeries(
-        db,
-        deal.source,
-        deal.origin,
-        deal.destination,
-        deal.cabin,
-        deal.travelMonth,
-        60,
-      ),
+      priceHistory: useGoogle ? insights!.series : observed,
+      priceHistorySource: useGoogle ? 'google' : 'observed',
       dateOptions: options.map((o) => ({
         ...o,
         nights: Math.round((Date.parse(o.returnDate) - Date.parse(o.departDate)) / 86_400_000),

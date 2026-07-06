@@ -3,6 +3,7 @@ import type { Db } from '../db/db.js';
 import {
   expireDeal,
   getDealByRouteMonth,
+  getPriceInsights,
   latestScanSnapshots,
   snapshotsForRoute,
   snapshotsForRouteMonth,
@@ -47,14 +48,20 @@ export function processRouteMonth(
     asOf,
   );
 
-  const baseline = computeBaseline(monthHistory, routeHistory);
-  if (!baseline) return null; // cold start: collect only
+  const insights = getPriceInsights(db, source, origin, destination, cabin, month);
+  const baseline = computeBaseline(monthHistory, routeHistory, insights);
+  if (!baseline) return null; // cold start with no insights either: collect only
 
   const { score, discountPct } = scoreDeal({
     currentCents: current.priceCents,
     baselineCents: baseline.baselineCents,
-    // Daily minima, like the baseline — see computeBaseline for why
-    routeHistoryCents: dailyMinima(routeHistory),
+    // Daily minima, like the baseline — see computeBaseline for why. When the
+    // baseline is bootstrapped from Google, its series (already daily lowest
+    // prices) provides the percentile history our own thin data can't.
+    routeHistoryCents:
+      baseline.kind === 'google'
+        ? (insights?.series.map((p) => p.priceCents) ?? [])
+        : dailyMinima(routeHistory),
   });
 
   if (discountPct > DEAL_MIN_DISCOUNT) {
@@ -71,6 +78,7 @@ export function processRouteMonth(
       departDate: current.departDate,
       returnDate: current.returnDate,
       seenAt: asOf,
+      baselineSource: baseline.kind === 'google' ? 'google' : 'observed',
     });
   }
 

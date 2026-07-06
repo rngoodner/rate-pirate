@@ -75,6 +75,9 @@ export interface Deal {
   firstSeenAt: string;
   lastSeenAt: string;
   status: 'active' | 'expired';
+  /** 'observed' = our own scan history; 'google' = bootstrapped from Google's
+   *  price-history graph while our history is still building. */
+  baselineSource: 'observed' | 'google';
 }
 
 export interface DealDateOption {
@@ -98,6 +101,8 @@ export interface DealDetail extends Deal {
   dateOptions: DealDateOption[];
   /** Daily-minimum price history for this route-month (last ~60 days). */
   priceHistory: PricePoint[];
+  /** Whose history the sparkline charts: ours, or Google's while ours builds. */
+  priceHistorySource: 'observed' | 'google';
 }
 
 /** A scannable destination; `active` = included in the scan rotation. */

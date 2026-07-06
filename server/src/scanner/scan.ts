@@ -3,13 +3,16 @@ import type { Db } from '../db/db.js';
 import {
   activeDestinations,
   apiCallsToday,
+  captureDaysForRouteMonth,
   expireDealsBeforeMonth,
   expireDealsOutsideUniverse,
   insertSnapshot,
   latestCaptureByRouteMonth,
   logEvent,
   recordApiCall,
+  upsertPriceInsights,
 } from '../db/repo.js';
+import { BASELINE_WINDOWS } from '../deals/baseline.js';
 import { getSettings } from '../db/settings.js';
 import type { FlightPriceProvider, RoundTripQuote } from '../providers/types.js';
 import { horizonMonths, planBatch, type RouteMonthTask } from './planner.js';
@@ -137,12 +140,38 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
     }
     const capturedAt = sqliteStamp(now());
     try {
-      const quotes = await provider.monthQuotes({
+      // Fetch Google's history graph only while this route-month lacks its own
+      // baseline — the click cost decays to ~zero as real history accumulates.
+      const wantHistory =
+        captureDaysForRouteMonth(
+          db,
+          provider.name,
+          settings.homeAirport,
+          task.destination,
+          task.cabin,
+          task.month,
+          BASELINE_WINDOWS.MONTH_WINDOW_DAYS,
+        ) < BASELINE_WINDOWS.MONTH_MIN_DAYS;
+      const { quotes, insights } = await provider.monthQuotes({
         origin: settings.homeAirport,
         destination: task.destination,
         cabin: task.cabin,
         month: task.month,
+        wantHistory,
       });
+      if (insights) {
+        upsertPriceInsights(
+          db,
+          {
+            source: provider.name,
+            origin: settings.homeAirport,
+            destination: task.destination,
+            cabin: task.cabin,
+            travelMonth: task.month,
+          },
+          { level: insights.level, history: insights.history, capturedAt },
+        );
+      }
       // The real provider logs its own calls (with HTTP status); the mock doesn't.
       if (provider.name === 'mock') {
         recordApiCall(db, {

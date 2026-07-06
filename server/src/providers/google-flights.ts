@@ -1,14 +1,25 @@
 import { existsSync } from 'node:fs';
-import puppeteer, { type Browser } from 'puppeteer-core';
+import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 
 // Only referenced inside page.evaluate callbacks, which run in the browser;
 // the server tsconfig deliberately has no DOM lib.
 declare const document: {
-  querySelectorAll: (selector: string) => Iterable<{ getAttribute: (name: string) => string | null }>;
+  querySelectorAll: (selector: string) => Iterable<{
+    getAttribute: (name: string) => string | null;
+    textContent: string | null;
+    click: () => void;
+  }>;
   body: { innerText: string };
 };
 import { CABIN_QUERY_PHRASE } from '@rate-pirate/shared';
-import type { CallLog, FlightPriceProvider, MonthQuery, RoundTripQuote } from './types.js';
+import type {
+  CallLog,
+  FlightPriceProvider,
+  MonthQuery,
+  MonthResult,
+  PriceInsights,
+  RoundTripQuote,
+} from './types.js';
 import { ProviderError } from './types.js';
 
 /** Scrapes Google Flights result pages with headless Chrome and reads prices
@@ -55,6 +66,25 @@ export function parseResultLabel(
   return { priceUsd: Number(price[1]!.replaceAll(',', '')), stops, carrier };
 }
 
+/** "Prices are currently low|typical|high" from the results page body text. */
+export function parsePriceLevel(bodyText: string): PriceInsights['level'] {
+  const m = bodyText.match(/Prices are currently\s+(low|typical|high)/i);
+  return m ? (m[1]!.toLowerCase() as 'low' | 'typical' | 'high') : null;
+}
+
+/** Price-history graph bar label: "61 days ago - $494" / "Today - $494".
+ *  Returns the absolute 'YYYY-MM-DD' the bar refers to, anchored at `asOf`. */
+export function parseHistoryLabel(
+  label: string,
+  asOf: Date,
+): { date: string; priceCents: number } | null {
+  const m = label.match(/^(?:(\d+) days? ago|Today) - \$([\d,]+)$/);
+  if (!m) return null;
+  const daysAgo = m[1] ? Number(m[1]) : 0;
+  const date = new Date(asOf.getTime() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+  return { date, priceCents: Number(m[2]!.replaceAll(',', '')) * 100 };
+}
+
 /** Representative round trip for a month: 2nd Saturday departure, 7 nights. */
 export function representativeDates(month: string): { departDate: string; returnDate: string } {
   const first = new Date(`${month}-01T00:00:00Z`);
@@ -90,7 +120,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     private readonly opts: { noSandbox?: boolean } = {},
   ) {}
 
-  async monthQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
+  async monthQuotes(q: MonthQuery): Promise<MonthResult> {
     // Google intermittently answers "Oops, something went wrong" — retry once.
     for (let attempt = 0; ; attempt++) {
       try {
@@ -102,7 +132,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     }
   }
 
-  private async fetchQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
+  private async fetchQuotes(q: MonthQuery): Promise<MonthResult> {
     // Hold the idle-close timer while any fetch is in flight — a timer armed by
     // the previous fetch must not close the browser under this one.
     this.inFlight++;
@@ -118,7 +148,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     }
   }
 
-  private async fetchQuotesInner(q: MonthQuery): Promise<RoundTripQuote[]> {
+  private async fetchQuotesInner(q: MonthQuery): Promise<MonthResult> {
     const { departDate, returnDate } = representativeDates(q.month);
     const route = `${q.origin}-${q.destination} ${q.month} ${q.cabin}`;
     // Economy keeps the exact query proven to work; premium cabins append the
@@ -187,7 +217,11 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
       }
 
       this.onCall?.({ endpoint: 'flights-page', route, status: 200, ok: true });
-      return quotes.sort((a, b) => a.priceCents - b.priceCents);
+      // Insights are best-effort extras on the same page — never fail the scan.
+      const insights = await this.collectInsights(page, bodyText, q.wantHistory ?? false).catch(
+        () => null,
+      );
+      return { quotes: quotes.sort((a, b) => a.priceCents - b.priceCents), insights };
     } catch (err) {
       if (err instanceof ProviderError || err instanceof TransientPageError) throw err;
       this.onCall?.({ endpoint: 'flights-page', route, ok: false });
@@ -195,6 +229,50 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     } finally {
       await page.close().catch(() => {});
     }
+  }
+
+  /** Google's price-level verdict (free, from body text) and, when asked, the
+   *  ~60-day history graph behind one "View price history" click. Best-effort:
+   *  any failure degrades to partial/null insights, never a scan error. */
+  private async collectInsights(
+    page: Page,
+    bodyText: string,
+    wantHistory: boolean,
+  ): Promise<PriceInsights | null> {
+    const level = parsePriceLevel(bodyText);
+    if (!wantHistory) return level ? { level, history: null } : null;
+
+    const clicked = await page.evaluate(() => {
+      const nodes = [...document.querySelectorAll('button, [role="button"], span, div')];
+      const el = nodes.find((n) => n.textContent?.trim() === 'View price history');
+      if (!el) return false;
+      el.click();
+      return true;
+    });
+    if (!clicked) return { level, history: null };
+
+    await page
+      .waitForFunction(
+        () =>
+          [...document.querySelectorAll('[aria-label]')].some((el) =>
+            /days ago - \$/.test(el.getAttribute('aria-label') ?? ''),
+          ),
+        { timeout: 8000 },
+      )
+      .catch(() => {});
+
+    const labels = await page.evaluate(() =>
+      [...document.querySelectorAll('[aria-label]')]
+        .map((el) => el.getAttribute('aria-label')!)
+        .filter((l) => /^(?:\d+ days? ago|Today) - \$[\d,]+$/.test(l)),
+    );
+    const asOf = new Date();
+    const history = labels
+      .map((l) => parseHistoryLabel(l, asOf))
+      .filter((p): p is { date: string; priceCents: number } => p !== null)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    // A thin series isn't a baseline — require a meaningful window.
+    return { level, history: history.length >= 10 ? history : null };
   }
 
   async close(): Promise<void> {

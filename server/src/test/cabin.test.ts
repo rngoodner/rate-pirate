@@ -159,7 +159,7 @@ describe('settings monitoredCabins', () => {
     });
     expect(tasks.every((t) => t.cabin === 'premium_economy')).toBe(true);
     // sanity: mock returns quotes for that cabin
-    const quotes = await provider.monthQuotes({
+    const { quotes } = await provider.monthQuotes({
       origin: 'ABQ', destination: 'NAP', cabin: 'premium_economy', month: '2026-08',
     });
     expect(quotes.every((q) => q.cabin === 'premium_economy')).toBe(true);

@@ -21,7 +21,11 @@ export default function DealCard({ deal }: { deal: Deal }) {
       <div className="mt-3 flex items-center justify-between">
         <ScoreBadge score={deal.score} />
         <span className="flex items-center gap-1">
-          <PriceTag priceCents={deal.bestPriceCents} baselineCents={deal.baselinePriceCents} />
+          <PriceTag
+            priceCents={deal.bestPriceCents}
+            baselineCents={deal.baselinePriceCents}
+            estimated={deal.baselineSource === 'google'}
+          />
           <span className="text-gray-400">›</span>
         </span>
       </div>

@@ -1,5 +1,11 @@
 import type { Cabin } from '@rate-pirate/shared';
-import type { FlightPriceProvider, MonthQuery, RoundTripQuote } from './types.js';
+import type {
+  FlightPriceProvider,
+  MonthQuery,
+  MonthResult,
+  PriceInsights,
+  RoundTripQuote,
+} from './types.js';
 
 /** Rough real-world round-trip price multipliers relative to economy. */
 const CABIN_PRICE_FACTOR: Record<Cabin, number> = {
@@ -38,7 +44,7 @@ export class SyntheticProvider implements FlightPriceProvider {
     this.drops.delete(`${destination}|${month}`);
   }
 
-  async monthQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
+  async monthQuotes(q: MonthQuery): Promise<MonthResult> {
     const today = this.now();
     const dayKey = Math.floor(today.getTime() / 86_400_000);
     const base = this.basePrice(q.destination) * CABIN_PRICE_FACTOR[q.cabin];
@@ -71,7 +77,25 @@ export class SyntheticProvider implements FlightPriceProvider {
         carrier: ['AA', 'UA', 'DL', 'BA', 'KL'][Math.floor(this.rand(`${key}|c`) * 5)]!,
       });
     }
-    return quotes.sort((a, b) => a.priceCents - b.priceCents);
+    quotes.sort((a, b) => a.priceCents - b.priceCents);
+    return { quotes, insights: this.insights(q, base * seasonal, drop, dayKey) };
+  }
+
+  /** Deterministic synthetic price insights mirroring the real provider:
+   *  a level verdict always, a ~60-day history series only when asked. */
+  private insights(q: MonthQuery, typicalUsd: number, drop: number, dayKey: number): PriceInsights {
+    const level: PriceInsights['level'] = drop < 0.9 ? 'low' : 'typical';
+    if (!q.wantHistory) return { level, history: null };
+    const history: { date: string; priceCents: number }[] = [];
+    for (let daysAgo = 60; daysAgo >= 0; daysAgo--) {
+      const day = dayKey - daysAgo;
+      const noise = 0.92 + this.rand(`hist|${q.destination}|${q.month}|${q.cabin}|${day}`) * 0.2;
+      history.push({
+        date: new Date(day * 86_400_000).toISOString().slice(0, 10),
+        priceCents: Math.round(typicalUsd * noise * 100),
+      });
+    }
+    return { level, history };
   }
 
   /** Stable per-destination base round-trip price in USD (500–1900). */

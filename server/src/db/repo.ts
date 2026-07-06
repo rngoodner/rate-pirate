@@ -236,12 +236,14 @@ export interface DealRow {
   firstSeenAt: string;
   lastSeenAt: string;
   status: 'active' | 'expired';
+  baselineSource: 'observed' | 'google';
 }
 
 const dealCols = `id, source, origin, destination, cabin, travel_month AS travelMonth,
   best_price_cents AS bestPriceCents, baseline_price_cents AS baselinePriceCents,
   discount_pct AS discountPct, score, depart_date AS departDate, return_date AS returnDate,
-  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status`;
+  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status,
+  baseline_source AS baselineSource`;
 
 export interface DealInput {
   source: string;
@@ -256,13 +258,15 @@ export interface DealInput {
   departDate: string;
   returnDate: string;
   seenAt: string;
+  /** Defaults to 'observed' (our own history). */
+  baselineSource?: 'observed' | 'google';
 }
 
 export function upsertDeal(db: Db, d: DealInput): DealRow {
   db.prepare(
     `INSERT INTO deals (source, origin, destination, cabin, travel_month, best_price_cents, baseline_price_cents,
-       discount_pct, score, depart_date, return_date, first_seen_at, last_seen_at, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+       discount_pct, score, depart_date, return_date, first_seen_at, last_seen_at, status, baseline_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
      ON CONFLICT(source, origin, destination, cabin, travel_month) DO UPDATE SET
        best_price_cents = excluded.best_price_cents,
        baseline_price_cents = excluded.baseline_price_cents,
@@ -275,7 +279,8 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
        -- is a new episode: restart its first-seen clock.
        first_seen_at = CASE WHEN deals.status = 'expired'
                             THEN excluded.first_seen_at ELSE deals.first_seen_at END,
-       status = 'active'`,
+       status = 'active',
+       baseline_source = excluded.baseline_source`,
   ).run(
     d.source,
     d.origin,
@@ -290,6 +295,7 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
     d.returnDate,
     d.seenAt,
     d.seenAt,
+    d.baselineSource ?? 'observed',
   );
   return getDealByRouteMonth(db, d.source, d.origin, d.destination, d.cabin, d.travelMonth)!;
 }
@@ -360,6 +366,101 @@ export function expireDealsOutsideUniverse(
     .run(opts.source, opts.origin, opts.lastMonth, opts.today).changes;
 }
 
+// --- Google price insights (bootstrap baselines) ---
+
+export interface PriceInsightsRow {
+  level: 'low' | 'typical' | 'high' | null;
+  medianCents: number | null;
+  /** Parsed series, oldest first; [] when none was captured. */
+  series: { date: string; priceCents: number }[];
+  capturedAt: string;
+}
+
+export function upsertPriceInsights(
+  db: Db,
+  key: { source: string; origin: string; destination: string; cabin: Cabin; travelMonth: string },
+  insights: {
+    level: string | null;
+    history: { date: string; priceCents: number }[] | null;
+    capturedAt: string;
+  },
+): void {
+  const prices = insights.history?.map((p) => p.priceCents) ?? [];
+  const medianCents = prices.length
+    ? [...prices].sort((a, b) => a - b)[Math.floor(prices.length / 2)]!
+    : null;
+  db.prepare(
+    `INSERT INTO price_insights (source, origin, destination, cabin, travel_month,
+       level, median_cents, series_json, captured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(source, origin, destination, cabin, travel_month) DO UPDATE SET
+       level = excluded.level,
+       -- Keep an earlier series if a later capture didn't fetch one.
+       median_cents = COALESCE(excluded.median_cents, price_insights.median_cents),
+       series_json = COALESCE(excluded.series_json, price_insights.series_json),
+       captured_at = excluded.captured_at`,
+  ).run(
+    key.source,
+    key.origin,
+    key.destination,
+    key.cabin,
+    key.travelMonth,
+    insights.level,
+    medianCents,
+    insights.history ? JSON.stringify(insights.history.map((p) => [p.date, p.priceCents])) : null,
+    insights.capturedAt,
+  );
+}
+
+export function getPriceInsights(
+  db: Db,
+  source: string,
+  origin: string,
+  destination: string,
+  cabin: Cabin,
+  travelMonth: string,
+): PriceInsightsRow | null {
+  const row = db
+    .prepare(
+      `SELECT level, median_cents AS medianCents, series_json AS seriesJson,
+              captured_at AS capturedAt
+       FROM price_insights
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?`,
+    )
+    .get(source, origin, destination, cabin, travelMonth) as
+    | { level: PriceInsightsRow['level']; medianCents: number | null; seriesJson: string | null; capturedAt: string }
+    | undefined;
+  if (!row) return null;
+  const series = row.seriesJson
+    ? (JSON.parse(row.seriesJson) as [string, number][]).map(([date, priceCents]) => ({
+        date,
+        priceCents,
+      }))
+    : [];
+  return { level: row.level, medianCents: row.medianCents, series, capturedAt: row.capturedAt };
+}
+
+/** Distinct capture days our own history has for a route-month — drives both
+ *  the wantHistory decision and the observed-vs-google sparkline choice. */
+export function captureDaysForRouteMonth(
+  db: Db,
+  source: string,
+  origin: string,
+  destination: string,
+  cabin: Cabin,
+  travelMonth: string,
+  windowDays: number,
+): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(DISTINCT date(captured_at)) AS n FROM price_snapshots
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
+         AND captured_at >= datetime('now', '-' || ? || ' days')`,
+    )
+    .get(source, origin, destination, cabin, travelMonth, windowDays) as { n: number };
+  return row.n;
+}
+
 /** Daily-minimum price series for one route-month-cabin — the deal page's
  *  sparkline. Same daily-minima basis as the baseline computation. */
 export function dailyMinimaSeries(
@@ -394,7 +495,7 @@ const dealPlaceCols = `d.id, d.source, d.origin, d.destination, d.cabin, d.trave
   d.best_price_cents AS bestPriceCents, d.baseline_price_cents AS baselinePriceCents,
   d.discount_pct AS discountPct, d.score, d.depart_date AS departDate,
   d.return_date AS returnDate, d.first_seen_at AS firstSeenAt,
-  d.last_seen_at AS lastSeenAt, d.status`;
+  d.last_seen_at AS lastSeenAt, d.status, d.baseline_source AS baselineSource`;
 
 /** Active deals for the given source, restricted to the given cabins (the feed
  *  only shows cabins the user currently monitors). Empty `cabins` → no deals. */
@@ -630,6 +731,7 @@ export function purgeMockData(db: Db): number {
     const deals = db.prepare(`DELETE FROM deals WHERE source = 'mock'`).run().changes;
     const snaps = db.prepare(`DELETE FROM price_snapshots WHERE source = 'mock'`).run().changes;
     db.prepare(`DELETE FROM api_calls WHERE provider = 'mock'`).run();
+    db.prepare(`DELETE FROM price_insights WHERE source = 'mock'`).run();
     return deals + snaps;
   })();
 }

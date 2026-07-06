@@ -58,7 +58,7 @@ async function seedDays(
     for (const dest of destinations) {
       for (const month of months) {
         for (const cabin of cabins) {
-          const quotes = await provider.monthQuotes({ origin, destination: dest.iata, cabin, month });
+          const { quotes } = await provider.monthQuotes({ origin, destination: dest.iata, cabin, month });
           for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
             insertSnapshot(db, {
               origin: q.origin,

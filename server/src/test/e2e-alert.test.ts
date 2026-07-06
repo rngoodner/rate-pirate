@@ -3,7 +3,7 @@
  *  alert behavior including cooldown and deepening re-alerts. */
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
-import { seedDestinations } from '../db/repo.js';
+import { getDealByRouteMonth, seedDestinations } from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
 import { DESTINATION_CATALOG } from '../scanner/destinations.js';
@@ -80,5 +80,39 @@ describe('alert pipeline simulation', () => {
     await runDay(15);
     expect(napAlerts()).toHaveLength(2);
     expect(napAlerts()[1]!.day).toBe(15);
+  }, 120_000);
+
+  it('bootstraps from Google insights: a drop alerts on DAY ONE of a fresh install', async () => {
+    const db = openDb(':memory:');
+    seedDestinations(db, DESTINATION_CATALOG);
+    updateSettings(db, {
+      dailyCallBudget: 2000,
+      alertEmail: 'me@example.com',
+      monitoredCabins: ['economy'],
+    });
+    const config = loadConfig({});
+    const virtualNow = new Date(START);
+    const now = () => virtualNow;
+    const provider = new SyntheticProvider({ seed: 42, now });
+    const sent: EmailMessage[] = [];
+    const sender: EmailSender = {
+      name: 'console',
+      send: async (msg) => {
+        sent.push(msg);
+      },
+    };
+    const deps = { db, config, provider, now, onQuotes: createOnQuotes(db, config, sender, 'mock', now) };
+
+    const dropMonth = horizonMonths(new Date(START), 6)[1]!;
+    provider.injectDrop('NAP', dropMonth, 0.5); // 50% off before the very first scan
+    await runScanBatch(deps, 2000);
+
+    const deal = getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', dropMonth);
+    expect(deal).not.toBeNull();
+    expect(deal!.status).toBe('active');
+    expect(deal!.baselineSource).toBe('google'); // no own history yet
+    expect(deal!.discountPct).toBeGreaterThan(0.3);
+    const napAlert = sent.find((m) => m.subject.includes('Naples'));
+    expect(napAlert).toBeDefined();
   }, 120_000);
 });

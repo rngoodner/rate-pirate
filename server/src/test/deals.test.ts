@@ -55,6 +55,22 @@ describe('computeBaseline', () => {
     }));
     expect(computeBaseline(sameDay, sameDay)).toBeNull();
   });
+
+  it('bootstraps from Google insights only when both own baselines are too thin', () => {
+    const insights = {
+      level: 'low' as const,
+      medianCents: 92000,
+      series: [{ date: '2026-06-01', priceCents: 92000 }],
+      capturedAt: '2026-07-06 08:00:00',
+    };
+    // Cold start + insights → google baseline
+    expect(computeBaseline([], [], insights)).toEqual({ baselineCents: 92000, kind: 'google' });
+    // Mature month history wins over insights
+    const month = rows([100000, 101000, 99000, 102000, 98000, 100500, 99500, 100200, 101500, 98500]);
+    expect(computeBaseline(month, [], insights)?.kind).toBe('month');
+    // Insights without a series (median null) can't be a baseline
+    expect(computeBaseline([], [], { ...insights, medianCents: null })).toBeNull();
+  });
 });
 
 describe('scoreDeal', () => {

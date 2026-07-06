@@ -38,8 +38,11 @@ curl -s localhost:3789/api/status          # app status: last scan, calls used,
 ```
 
 The same status JSON is shown in the app's **Settings** tab. `baselineCoverage`
-climbs toward 1.0 over the first ~10 days; deals and alerts only start once
-routes have baselines (by design — no false alerts during cold start).
+tracks OUR OWN price history and climbs toward 1.0 over the first ~10 days —
+but deals and alerts can appear from day one: while a route lacks its own
+baseline, the scanner bootstraps from Google's price-history graph (captured
+from the same page loads) and marks such deals "est." in the UI. Own history
+takes over automatically as it matures.
 
 **Settings → Activity log** shows the last 50 events (batch summaries, alerts
 sent, and any scan/alert errors with expandable stack traces) — check there

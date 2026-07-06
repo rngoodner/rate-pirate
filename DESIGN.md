@@ -155,7 +155,17 @@ interface FlightPriceProvider {
 **Baseline** per (origin, destination, travel_month) — computed over **daily-cheapest** prices (min per capture day), never raw snapshots: each scan stores several date-pair quotes and the "current price" is the cheapest of the latest scan, so a median over all quotes would sit structurally above any day's cheapest and make every route look ~10% discounted forever (bug found via the seed simulator):
 1. Median of the month's daily minima over last 60 days, if ≥10 capture days.
 2. Fallback: median of the whole route's daily minima over 90 days, if ≥14 capture days.
-3. Otherwise **cold start**: collect only — no deal, no alert. UI shows "building price history" banner with coverage %.
+3. Fallback: **Google's own price history**. Every result page carries a price-insights
+   block ("Prices are currently low/typical/high") and, behind one in-page click, a
+   ~60-day price-history graph for the searched trip (bar aria-labels like
+   "61 days ago - $494"). While a route-month lacks its own baseline the scanner pays
+   that click, stores the series in `price_insights`, and its median becomes a
+   bootstrap baseline — deals and alerts can fire on **day one**, marked
+   `baseline_source='google'` and shown as "est." in the UI. The series (daily lowest
+   prices, same basis as our daily minima) also supplies the percentile history for
+   scoring. Our own baselines take over automatically as they mature, and the click
+   cost decays to ~zero.
+4. Otherwise **cold start**: collect only — no deal, no alert. UI shows "building price history" banner with coverage %.
 
 **Score** (pure function):
 ```

@@ -45,7 +45,7 @@ describe('runScanBatch guards', () => {
   it('flags a sizable all-zero-price batch as possible scraper breakage', async () => {
     const emptyProvider: FlightPriceProvider = {
       name: 'mock',
-      monthQuotes: async () => [],
+      monthQuotes: async () => ({ quotes: [], insights: null }),
     };
     const deps = makeDeps(emptyProvider);
     const result = await runScanBatch(deps, 12);

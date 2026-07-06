@@ -6,9 +6,12 @@ import { usd } from '../api/client';
 export default function Sparkline({
   points,
   baselineCents,
+  source = 'observed',
 }: {
   points: PricePoint[];
   baselineCents: number;
+  /** 'google' = Google's price-history graph, shown while our own builds. */
+  source?: 'observed' | 'google';
 }) {
   if (points.length < 2) return null;
 
@@ -52,7 +55,10 @@ export default function Sparkline({
         <circle cx={x(points.length - 1)} cy={y(last.priceCents)} r="3.5" fill="#35b6ea" />
       </svg>
       <p className="mt-1 text-xs text-gray-400">
-        Daily lowest observed fare. Dashed line = typical price ({usd(baselineCents)}).
+        {source === 'google'
+          ? "Google's price history for this trip (shown while our own builds)."
+          : 'Daily lowest observed fare.'}{' '}
+        Dashed line = typical price ({usd(baselineCents)}).
       </p>
     </div>
   );

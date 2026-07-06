@@ -1,5 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { parseResultLabel, representativeDates } from '../providers/google-flights.js';
+import {
+  parseHistoryLabel,
+  parsePriceLevel,
+  parseResultLabel,
+  representativeDates,
+} from '../providers/google-flights.js';
+
+describe('parsePriceLevel', () => {
+  it('reads the level verdict from body text', () => {
+    expect(parsePriceLevel('… Price insights Prices are currently typical View price history …')).toBe('typical');
+    expect(parsePriceLevel('Prices are currently  low')).toBe('low');
+    expect(parsePriceLevel('Prices are currently high for this search')).toBe('high');
+  });
+
+  it('returns null when the block is absent or unrecognized', () => {
+    expect(parsePriceLevel('no insights on this page')).toBeNull();
+    expect(parsePriceLevel('Prices are currently unavailable')).toBeNull();
+  });
+});
+
+describe('parseHistoryLabel', () => {
+  const asOf = new Date('2026-07-06T05:00:00Z');
+
+  it('parses graph bar labels into dated prices (live format: "61 days ago - $494")', () => {
+    expect(parseHistoryLabel('61 days ago - $494', asOf)).toEqual({
+      date: '2026-05-06',
+      priceCents: 49400,
+    });
+    expect(parseHistoryLabel('1 day ago - $1,204', asOf)).toEqual({
+      date: '2026-07-05',
+      priceCents: 120400,
+    });
+    expect(parseHistoryLabel('Today - $494', asOf)).toEqual({
+      date: '2026-07-06',
+      priceCents: 49400,
+    });
+  });
+
+  it('rejects labels that are not graph bars', () => {
+    expect(parseHistoryLabel('From 885 US dollars round trip total.', asOf)).toBeNull();
+    expect(parseHistoryLabel('61 days ago', asOf)).toBeNull();
+    expect(parseHistoryLabel('$494', asOf)).toBeNull();
+  });
+});
 
 describe('parseResultLabel', () => {
   it('parses price, stops, and carrier from a result aria-label', () => {

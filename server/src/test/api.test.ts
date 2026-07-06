@@ -81,6 +81,8 @@ describe('API routes', () => {
     // Daily-minimum history rides along for the sparkline.
     expect(detail.priceHistory.length).toBeGreaterThan(0);
     expect(detail.priceHistory[0]).toMatchObject({ priceCents: expect.any(Number) });
+    expect(detail.priceHistorySource).toBe('observed'); // no insights seeded here
+    expect(detail.baselineSource).toBe('observed');
     expect(await (await app.request('/api/deals/999')).status).toBe(404);
   });
 

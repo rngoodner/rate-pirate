@@ -18,7 +18,13 @@ const provider = new GoogleFlightsProvider(findChrome(config.CHROME_PATH), (log)
 
 for (const destination of destinations) {
   try {
-    const quotes = await provider.monthQuotes({ origin, destination, cabin: 'economy', month });
+    const { quotes, insights } = await provider.monthQuotes({
+      origin,
+      destination,
+      cabin: 'economy',
+      month,
+      wantHistory: true,
+    });
     if (quotes.length === 0) {
       console.log(`${origin}-${destination} ${month}: no results`);
       continue;
@@ -26,7 +32,8 @@ for (const destination of destinations) {
     const q = quotes[0]!;
     console.log(
       `${origin}-${destination} ${month}: $${q.priceCents / 100} ${q.departDate}→${q.returnDate} ` +
-        `${q.stops} stop(s) ${q.carrier} (${quotes.length} quotes)`,
+        `${q.stops} stop(s) ${q.carrier} (${quotes.length} quotes) ` +
+        `[insights: ${insights?.level ?? 'none'}, history ${insights?.history?.length ?? 0} pts]`,
     );
   } catch (err) {
     console.error(`${origin}-${destination} ${month}: ERROR — ${err}`);
