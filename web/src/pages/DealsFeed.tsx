@@ -19,7 +19,13 @@ export default function DealsFeed() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.deals().then(setDeals).catch((e: Error) => setError(e.message));
+    api
+      .deals()
+      .then((d) => {
+        setDeals(d);
+        setError(null); // a later successful refresh clears a transient failure
+      })
+      .catch((e: Error) => setError(e.message));
     api.settings().then(setSettings).catch(() => {});
   }, []);
   useEffect(load, [load]);
@@ -27,7 +33,7 @@ export default function DealsFeed() {
 
   return (
     <div>
-      <header className="bg-brand-pale px-4 pb-4 pt-6">
+      <header className="bg-brand-pale px-4 pb-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <h1 className="text-xl font-black tracking-tight">🏴‍☠️ Rate Pirate</h1>
         <Link
           to="/settings"

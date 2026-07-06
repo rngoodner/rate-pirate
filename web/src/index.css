@@ -4,3 +4,9 @@
   --color-brand: #35b6ea;
   --color-brand-pale: #bfe6f7;
 }
+
+body {
+  /* Match the app background so iOS rubber-band overscroll doesn't flash white. */
+  background-color: #f3f4f6;
+  overscroll-behavior-y: none;
+}

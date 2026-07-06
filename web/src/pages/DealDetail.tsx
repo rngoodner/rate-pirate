@@ -13,12 +13,20 @@ export default function DealDetail() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (id) api.deal(id).then(setDeal).catch((e: Error) => setError(e.message));
+    if (id)
+      api
+        .deal(id)
+        .then((d) => {
+          setDeal(d);
+          setError(null);
+        })
+        .catch((e: Error) => setError(e.message));
   }, [id]);
   useEffect(load, [load]);
   useAutoRefresh(load);
 
-  if (error) {
+  // A failed background refresh must not replace an already-loaded deal.
+  if (error && !deal) {
     return (
       <div className="p-4">
         <BackLink />
@@ -32,7 +40,7 @@ export default function DealDetail() {
 
   return (
     <div>
-      <header className="bg-brand-pale px-4 pb-4 pt-6">
+      <header className="bg-brand-pale px-4 pb-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <BackLink />
         <div className="mt-2 flex items-center gap-2">
           <h1 className="text-2xl font-extrabold tracking-tight">

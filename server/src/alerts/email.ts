@@ -36,16 +36,29 @@ function smtpSender(config: Config): EmailSender {
         ? { user: config.SMTP_USER, pass: config.SMTP_PASS }
         : undefined,
     tls: config.SMTP_ALLOW_INVALID_CERT ? { rejectUnauthorized: false } : undefined,
+    // Proton Bridge's failure mode is hung-but-accepting-connections; nodemailer's
+    // defaults (up to 10 min socket timeout) would stall the scan batch that
+    // awaits each alert send. Fail fast instead — sends retry on later scans.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 30_000,
   });
   return {
     name: 'smtp',
     async send(msg) {
-      await transport.sendMail({
+      const mail = {
         from: `Rate Pirate <${config.ALERT_EMAIL_FROM}>`,
         to: msg.to,
         subject: msg.subject,
         html: msg.html,
-      });
+      };
+      try {
+        await transport.sendMail(mail);
+      } catch {
+        // One quick retry covers Bridge's transient post-idle hiccups.
+        await new Promise((r) => setTimeout(r, 5_000));
+        await transport.sendMail(mail);
+      }
     },
   };
 }

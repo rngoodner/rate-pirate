@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CABINS,
   CABIN_LABELS,
@@ -31,13 +31,28 @@ export default function Settings() {
   // an in-flight edit.
   useAutoRefresh(loadStatus, 60_000);
 
+  // An earlier "Saved" flash's clear-timer must not wipe a later message.
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  function flashNotice(text: string, sticky = false) {
+    clearTimeout(noticeTimer.current);
+    setNotice(text);
+    if (!sticky) noticeTimer.current = setTimeout(() => setNotice(null), 1500);
+  }
+
+  // Sequence saves so an out-of-order PUT response can't clobber newer local
+  // state (e.g. a response landing mid-slider-drag snapping the thumb back).
+  const saveSeq = useRef(0);
   async function save(patch: Partial<SettingsType>) {
+    const seq = ++saveSeq.current;
     try {
-      setSettings(await api.updateSettings(patch));
-      setNotice('Saved');
-      setTimeout(() => setNotice(null), 1500);
+      const result = await api.updateSettings(patch);
+      if (seq === saveSeq.current) setSettings(result);
+      flashNotice('Saved');
     } catch (e) {
-      setNotice((e as Error).message);
+      flashNotice((e as Error).message, true);
+      // The optimistic local value was rejected — re-sync with the server so
+      // the form doesn't keep displaying a value that was never accepted.
+      if (seq === saveSeq.current) api.settings().then(setSettings).catch(() => {});
     }
   }
 
@@ -48,10 +63,12 @@ export default function Settings() {
       ? settings.monitoredCabins.filter((c) => c !== cabin)
       : CABINS.filter((c) => c === cabin || settings.monitoredCabins.includes(c));
     if (next.length === 0) {
-      setNotice('Keep at least one cabin selected');
-      setTimeout(() => setNotice(null), 1500);
+      flashNotice('Keep at least one cabin selected');
       return;
     }
+    // Optimistic: a second quick tap must see the first one applied, or the
+    // two PUTs (each carrying the full cabin array) would drop one change.
+    setSettings({ ...settings, monitoredCabins: next });
     save({ monitoredCabins: next });
   }
 
@@ -59,7 +76,7 @@ export default function Settings() {
 
   return (
     <div>
-      <header className="bg-brand-pale px-4 pb-4 pt-6">
+      <header className="bg-brand-pale px-4 pb-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <h1 className="text-xl font-black tracking-tight">Settings</h1>
       </header>
 
@@ -87,9 +104,9 @@ export default function Settings() {
             onClick={async () => {
               try {
                 const r = await api.testEmail();
-                setNotice(`Test email sent via ${r.via} to ${r.to}`);
+                flashNotice(`Test email sent via ${r.via} to ${r.to}`, true);
               } catch (e) {
-                setNotice((e as Error).message);
+                flashNotice((e as Error).message, true);
               }
             }}
           >
@@ -108,7 +125,7 @@ export default function Settings() {
               setSettings({ ...settings, alertThreshold: Number(e.target.value) })
             }
             onPointerUp={() => save({ alertThreshold: settings.alertThreshold })}
-            onKeyUp={() => save({ alertThreshold: settings.alertThreshold })}
+            onBlur={() => save({ alertThreshold: settings.alertThreshold })}
           />
           <p className="text-xs text-gray-500">
             Higher = fewer, better deals. Emails also require the price to be ≥
@@ -326,7 +343,7 @@ function Advanced({
                 setSettings({ ...settings, alertMinDiscount: Number(e.target.value) / 100 })
               }
               onPointerUp={() => save({ alertMinDiscount: settings.alertMinDiscount })}
-              onKeyUp={() => save({ alertMinDiscount: settings.alertMinDiscount })}
+              onBlur={() => save({ alertMinDiscount: settings.alertMinDiscount })}
             />
           </AdvField>
 

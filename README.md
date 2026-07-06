@@ -200,14 +200,27 @@ sqlite3 /opt/rate-pirate/data/rate-pirate.db \
    FROM deals WHERE status='active' ORDER BY score DESC;"      # current deals
 ```
 
-Recommended nightly backup (add via `crontab -e` on the server; keeps 7 rotating
-daily copies):
+### Backups
 
-```
-15 2 * * * sqlite3 /opt/rate-pirate/data/rate-pirate.db ".backup /opt/rate-pirate/data/backup-$(date +\%w).db"
-```
+Two layers — the on-host copy protects against app/DB corruption, the off-host
+copy against the disk/pool dying (which would otherwise take the live DB *and*
+its backups together):
 
-Old data prunes itself: price snapshots after 180 days, API-call logs after 60.
+1. **On your-server.local** — nightly `.backup`, 7 rotating daily copies. One-time
+   setup, as ryan (no sudo):
+
+   ```bash
+   ssh -t your-server.local '(crontab -l 2>/dev/null; echo "15 2 * * * sqlite3 /opt/rate-pirate/data/rate-pirate.db \".backup /opt/rate-pirate/data/backup-\$(date +\%w).db\"") | crontab -'
+   ```
+
+2. **Off-host** — pull the rotation to another machine with
+   `deploy/pull-backups.sh` (run from the Mac; cron it or run it occasionally).
+
+Losing the DB is not fatal — deals regenerate — but baselines need ~2 weeks of
+scanning to become trustworthy again, so alert quality degrades until then.
+
+Old data prunes itself: price snapshots after 180 days, API-call logs after 60,
+activity-log events after 30.
 
 ### Deploying an update
 
