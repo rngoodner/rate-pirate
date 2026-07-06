@@ -78,10 +78,10 @@ curl -s -X PUT -H 'content-type: application/json' \
 ```
 
 Sizing: the scan universe is `destinations × 6 months × monitored cabins` calls
-(115 × 6 × 2 cabins ≈ 1,380). A route-month only gets a **month baseline** with
+(158 × 6 × 2 cabins ≈ 1,900). A route-month only gets a **month baseline** with
 captures on 10 distinct days inside a 60-day window, so each unit needs a scan
-at least every ~6 days: `budget ≥ universe / 5` is a good floor (≈ 225 for two
-cabins, ≈ 115 for one). Below that, routes fall back to the coarser all-months
+at least every ~6 days: `budget ≥ universe / 5` is a good floor (≈ 380 for two
+cabins, ≈ 190 for one). Below that, routes fall back to the coarser all-months
 route baseline and seasonality is blurred. Each call is a throttled headless-
 Chrome page load (4–7 s apart); ~300/day ≈ 8 minutes of scraping per batch.
 Stay well under ~500/day to keep Google friendly — if scans start failing
