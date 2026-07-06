@@ -208,9 +208,15 @@ export default function Settings() {
           </div>
         )}
 
-        <ActivityLog events={events} />
+        <ActivityLog events={events} onCleared={loadStatus} notify={flashNotice} />
 
-        <Advanced settings={settings} setSettings={setSettings} save={save} />
+        <Advanced
+          settings={settings}
+          setSettings={setSettings}
+          save={save}
+          notify={flashNotice}
+          onScanDone={loadStatus}
+        />
 
         {notice && (
           <p aria-live="polite" className="text-center text-sm text-gray-500">
@@ -233,10 +239,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /** Collapsed-by-default log of recent scanner/alert activity and errors —
  *  the first stop when something looks wrong, before reaching for ssh. */
-function ActivityLog({ events }: { events: AppEvent[] }) {
+function ActivityLog({
+  events,
+  onCleared,
+  notify,
+}: {
+  events: AppEvent[];
+  onCleared: () => void;
+  notify: (text: string, sticky?: boolean) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const errorCount = events.filter((e) => e.level === 'error').length;
+
+  async function clearLog() {
+    try {
+      await api.clearEvents();
+      notify('Activity log cleared');
+      onCleared(); // refetch events + status — also clears the feed's red banner
+    } catch (e) {
+      notify((e as Error).message, true);
+    }
+  }
 
   return (
     <div className="rounded-2xl bg-white shadow-sm">
@@ -266,6 +290,17 @@ function ActivityLog({ events }: { events: AppEvent[] }) {
         <ul className="border-t border-gray-100 px-4 py-2">
           {events.length === 0 && (
             <li className="py-2 text-sm text-gray-400">Nothing logged yet.</li>
+          )}
+          {events.length > 0 && (
+            <li className="border-b border-gray-50 py-2">
+              <button
+                type="button"
+                onClick={clearLog}
+                className="w-full rounded-xl border border-gray-300 py-1.5 text-sm font-semibold text-gray-500 active:bg-gray-100"
+              >
+                Clear log
+              </button>
+            </li>
           )}
           {events.map((e) => (
             <li key={e.id} className="border-b border-gray-50 py-2 last:border-b-0">
@@ -313,12 +348,43 @@ function Advanced({
   settings,
   setSettings,
   save,
+  notify,
+  onScanDone,
 }: {
   settings: SettingsType;
   setSettings: (s: SettingsType) => void;
   save: (patch: Partial<SettingsType>) => void;
+  notify: (text: string, sticky?: boolean) => void;
+  onScanDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+
+  const SKIP_REASONS: Record<string, string> = {
+    already_running: 'A scan is already running — see the Activity log.',
+    budget_exhausted: 'Daily call budget is spent; scans resume tomorrow.',
+    scan_disabled: 'Scanning is turned off (toggle above).',
+  };
+
+  async function runScan() {
+    setScanBusy(true);
+    notify('Scan batch requested…');
+    try {
+      const r = await api.scan();
+      notify(
+        r.skippedReason
+          ? (SKIP_REASONS[r.skippedReason] ?? `Skipped: ${r.skippedReason}`)
+          : `Batch done: ${r.scanned}/${r.planned} scanned, ${r.snapshots} prices${r.failures ? `, ${r.failures} failed` : ''}`,
+        true,
+      );
+      onScanDone();
+    } catch {
+      // A real batch outlives the request timeout — that's expected.
+      notify('Batch running in the background — progress appears in the Activity log.', true);
+    } finally {
+      setScanBusy(false);
+    }
+  }
   return (
     <div className="rounded-2xl bg-white shadow-sm">
       <button
@@ -395,6 +461,21 @@ function Advanced({
               onCommit={(n) => save({ scanHorizonMonths: n })}
             />
           </AdvField>
+
+          <div>
+            <button
+              type="button"
+              disabled={scanBusy}
+              onClick={runScan}
+              className="w-full rounded-xl border border-brand py-2 text-sm font-semibold text-brand active:bg-brand-pale disabled:opacity-50"
+            >
+              {scanBusy ? 'Requesting…' : 'Run scan batch now'}
+            </button>
+            <p className="mt-1 text-xs text-gray-400">
+              Runs one batch (a quarter of the daily budget) immediately instead of waiting for
+              the next scheduled scan. Progress and results appear in the Activity log.
+            </p>
+          </div>
         </div>
       )}
     </div>

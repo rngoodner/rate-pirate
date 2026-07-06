@@ -26,6 +26,14 @@ export const api = {
     }),
   status: () => request<ScanStatus>('/api/status'),
   events: () => request<AppEvent[]>('/api/events'),
+  clearEvents: () => request<{ cleared: number }>('/api/events', { method: 'DELETE' }),
+  /** Synchronous on the server (minutes for a real batch) — callers should
+   *  treat a client-side timeout as "started, watch the Activity log". */
+  scan: () =>
+    request<{ planned: number; scanned: number; snapshots: number; failures: number; skippedReason?: string }>(
+      '/api/scan',
+      { method: 'POST', signal: AbortSignal.timeout(8_000) },
+    ),
   destinations: () => request<Destination[]>('/api/destinations'),
   setDestinationActive: (iata: string, active: boolean) =>
     request<Destination>(`/api/destinations/${iata}`, {

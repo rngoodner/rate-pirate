@@ -15,6 +15,7 @@ import {
   activeDestinations,
   allDestinations,
   apiCallsToday,
+  clearEvents,
   dailyMinimaSeries,
   errorsToday,
   getDealWithPlace,
@@ -208,6 +209,10 @@ export function apiRoutes(deps: AppDeps): Hono {
   });
 
   api.get('/events', (c) => c.json(recentEvents(db, 50)));
+
+  // Clearing the log also resets errorsToday/scansBroken (both derive from it),
+  // so the feed's red banner clears with it.
+  api.delete('/events', (c) => c.json({ cleared: clearEvents(db) }));
 
   api.post('/scan', async (c) => c.json(await runScanBatch(deps)));
 

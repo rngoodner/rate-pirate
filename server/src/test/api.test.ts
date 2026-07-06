@@ -175,6 +175,16 @@ describe('API routes', () => {
     expect(status.errorsToday).toBe(errs.length);
     // Every task failed → the server judges scanning broken (feed shows red).
     expect(status.scansBroken).toBe(true);
+
+    // Clearing the log resets the error count AND the broken judgment.
+    const cleared = (await (
+      await brokenApp.request('/api/events', { method: 'DELETE' })
+    ).json()) as { cleared: number };
+    expect(cleared.cleared).toBeGreaterThan(0);
+    expect((await (await brokenApp.request('/api/events')).json()) as AppEvent[]).toHaveLength(0);
+    status = (await (await brokenApp.request('/api/status')).json()) as ScanStatus;
+    expect(status.errorsToday).toBe(0);
+    expect(status.scansBroken).toBe(false);
   });
 
   it('GET/PUT /api/destinations lists and toggles the scan catalog', async () => {

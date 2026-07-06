@@ -717,6 +717,10 @@ export function errorsToday(db: Db, scope?: string): number {
   return row.n;
 }
 
+export function clearEvents(db: Db): number {
+  return db.prepare('DELETE FROM app_events').run().changes;
+}
+
 export function pruneEvents(db: Db, olderThanDays: number): number {
   return db
     .prepare(`DELETE FROM app_events WHERE created_at < datetime('now', '-' || ? || ' days')`)
