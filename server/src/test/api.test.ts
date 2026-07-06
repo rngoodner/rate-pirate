@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Deal, DealDetail, ScanStatus, Settings } from '@rate-pirate/shared';
+import type { AppEvent, Deal, DealDetail, ScanStatus, Settings } from '@rate-pirate/shared';
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDb } from '../db/db.js';
 import { insertSnapshot, seedDestinations, upsertDeal } from '../db/repo.js';
 import { DESTINATION_CATALOG } from '../scanner/destinations.js';
 import { SyntheticProvider } from '../providers/mock.js';
+import type { FlightPriceProvider } from '../providers/types.js';
 
 function makeApp() {
   const db = openDb(':memory:');
@@ -132,6 +133,38 @@ describe('API routes', () => {
       });
       expect(bad.status).toBe(400);
     }
+  });
+
+  it('GET /api/events logs batch activity; scan failures raise errorsToday', async () => {
+    // Healthy scan: batch summary event, no errors.
+    const { app } = makeApp();
+    expect((await app.request('/api/scan', { method: 'POST' })).status).toBe(200);
+    const events = (await (await app.request('/api/events')).json()) as AppEvent[];
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0]).toMatchObject({ level: 'info', scope: 'batch' });
+    expect(events[0]!.message).toMatch(/route-months scanned/);
+    let status = (await (await app.request('/api/status')).json()) as ScanStatus;
+    expect(status.errorsToday).toBe(0);
+
+    // Broken provider: every task fails → error events + errorsToday > 0.
+    const db = openDb(':memory:');
+    seedDestinations(db, DESTINATION_CATALOG);
+    const broken: FlightPriceProvider = {
+      name: 'mock',
+      monthQuotes: async () => {
+        throw new Error('scrape blocked');
+      },
+    };
+    const brokenApp = createApp({ db, config: loadConfig({}), provider: broken });
+    await brokenApp.request('/api/scan', { method: 'POST' });
+    const errs = ((await (await brokenApp.request('/api/events')).json()) as AppEvent[]).filter(
+      (e) => e.level === 'error',
+    );
+    expect(errs.length).toBeGreaterThan(0);
+    expect(errs[0]).toMatchObject({ scope: 'scan' });
+    expect(errs[0]!.message).toContain('scrape blocked');
+    status = (await (await brokenApp.request('/api/status')).json()) as ScanStatus;
+    expect(status.errorsToday).toBe(errs.length);
   });
 
   it('GET /api/status reports provider, budget, and coverage', async () => {

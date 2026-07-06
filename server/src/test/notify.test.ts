@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
 import { maybeAlert } from '../alerts/notify.js';
 import type { EmailMessage, EmailSender } from '../alerts/email.js';
-import { upsertDeal, type DealRow } from '../db/repo.js';
+import { recentEvents, upsertDeal, type DealRow } from '../db/repo.js';
 import type { Settings } from '@rate-pirate/shared';
 
 const settings: Settings = {
@@ -168,5 +168,29 @@ describe('maybeAlert', () => {
     const retry = await maybeAlert(db, deal, settings, sender, '2026-06-20 12:00:00');
     expect(retry.sent).toBe(true);
     expect(sent).toHaveLength(1);
+  });
+
+  it('writes activity-log events for sends and send failures', async () => {
+    const db = openDb(':memory:');
+    const failing: EmailSender = {
+      name: 'console',
+      send: async () => {
+        throw new Error('boom');
+      },
+    };
+    const deal = makeDeal(db);
+    await maybeAlert(db, deal, settings, failing, '2026-06-20 08:00:00');
+    const { sender } = fakeSender();
+    await maybeAlert(db, deal, settings, sender, '2026-06-20 12:00:00');
+
+    const events = recentEvents(db, 10);
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ level: 'info', scope: 'alert' });
+    // Destinations aren't seeded in this test DB, so the city falls back to the IATA code.
+    expect(events[0]!.message).toContain('alert emailed: NAP Aug 2026 Economy $650');
+    expect(events[0]!.message).toContain('→ me@example.com');
+    expect(events[1]).toMatchObject({ level: 'error', scope: 'alert' });
+    expect(events[1]!.message).toContain('boom');
+    expect(events[1]!.detail).toContain('boom');
   });
 });

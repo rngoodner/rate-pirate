@@ -40,6 +40,11 @@ The same status JSON is shown in the app's **Settings** tab. `baselineCoverage`
 climbs toward 1.0 over the first ~10 days; deals and alerts only start once
 routes have baselines (by design — no false alerts during cold start).
 
+**Settings → Activity log** shows the last 50 events (batch summaries, alerts
+sent, and any scan/alert errors with expandable stack traces) — check there
+before reaching for journalctl. The feed shows a red banner when a meaningful
+share of the day's scans fail. Raw JSON: `curl -s localhost:3789/api/events`.
+
 ### Pause / resume scanning (without stopping the app)
 
 Use the **Scanning** toggle in the app's Settings tab, or:
@@ -228,7 +233,7 @@ sudo nginx -t && sudo systemctl reload nginx   # after editing the site config
 | Symptom | Check |
 |---|---|
 | App unreachable at :8081 | `systemctl status rate-pirate`, then `curl localhost:3789/api/health` on the server (isolates app vs nginx), then `sudo nginx -t` |
-| Scans failing | `journalctl -u rate-pirate --since today \| grep 'scan failed'`. Occasional `TransientPageError` is normal (Google hiccup — retried next batch). Many consecutive failures usually mean Google changed its page or is challenging the server's IP; try `chromium --version` and reduce the daily call budget (see "Adjust the daily call budget"). |
+| Scans failing | **Settings → Activity log** in the app shows each failure with its error (also `journalctl -u rate-pirate --since today \| grep 'scan failed'`). Occasional `TransientPageError` is normal (Google hiccup — retried next batch). Many consecutive failures usually mean Google changed its page or is challenging the server's IP; try `chromium --version` and reduce the daily call budget (see "Adjust the daily call budget"). |
 | No deals after 2+ weeks | Settings → Status: is `baselineCoverage` growing? Is `callsToday` > 0? If scanning is on and coverage is high, there simply may be no qualifying deals — lower the alert threshold to see more. |
 | No alert emails | Send a test email (above) and read the returned error. On Proton Bridge, check Bridge is running (`ss -tlnp \| grep 1025`). Remember alerts also require a ≥20% discount, not just a high score. |
 | Service won't start | `journalctl -u rate-pirate -n 50`. Common causes: missing `/opt/rate-pirate/.env`, or `node`/`chromium` missing after an OS reinstall (`apt install nodejs chromium`). |

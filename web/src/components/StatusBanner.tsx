@@ -13,8 +13,22 @@ export default function StatusBanner() {
   useEffect(load, [load]);
   useAutoRefresh(load, 60_000);
 
-  if (!status || status.baselineCoverage >= 0.9) return null;
+  if (!status) return null;
 
+  // Failing scans outrank the cold-start notice: ≥5 errors today AND errors
+  // are a meaningful share of the day's calls (occasional transients stay quiet).
+  const failing =
+    status.errorsToday >= 5 && status.errorsToday >= 0.3 * Math.max(status.callsToday, 1);
+  if (failing) {
+    return (
+      <div className="mb-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800">
+        <strong>Scans are failing</strong> — {status.errorsToday} errors today. See Settings →
+        Activity log.
+      </div>
+    );
+  }
+
+  if (status.baselineCoverage >= 0.9) return null;
   const pct = Math.round(status.baselineCoverage * 100);
   return (
     <div className="mb-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">

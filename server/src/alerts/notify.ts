@@ -1,6 +1,6 @@
-import { parseRecipients, type Settings } from '@rate-pirate/shared';
+import { CABIN_LABELS, parseRecipients, type Settings } from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
-import { getDestination, lastAlertForDeal, recordAlert, type DealRow } from '../db/repo.js';
+import { getDestination, lastAlertForDeal, logEvent, recordAlert, type DealRow } from '../db/repo.js';
 import type { EmailSender } from './email.js';
 import { alertHtml, alertSubject } from './template.js';
 
@@ -59,6 +59,12 @@ export async function maybeAlert(
     returnDate: deal.returnDate,
   };
 
+  const summary =
+    `${content.city} ${new Date(`${deal.travelMonth}-15T00:00:00Z`).toLocaleDateString('en-US', {
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })} ${CABIN_LABELS[deal.cabin]} $${Math.round(deal.bestPriceCents / 100)}`;
   try {
     await sender.send({
       to: recipients,
@@ -67,6 +73,13 @@ export async function maybeAlert(
     });
   } catch (err) {
     console.error(`alert send failed for deal ${deal.id}:`, err);
+    logEvent(db, {
+      level: 'error',
+      scope: 'alert',
+      message: `alert send failed: ${summary} — ${err instanceof Error ? err.message : String(err)}`,
+      detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
+      at: asOf,
+    });
     return { sent: false, reason: 'send_failed' };
   }
 
@@ -76,6 +89,12 @@ export async function maybeAlert(
     priceCents: deal.bestPriceCents,
     score: deal.score,
     sentAt: asOf,
+  });
+  logEvent(db, {
+    level: 'info',
+    scope: 'alert',
+    message: `alert emailed: ${summary} → ${recipients.join(', ')}`,
+    at: asOf,
   });
   return { sent: true };
 }

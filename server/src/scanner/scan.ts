@@ -6,6 +6,7 @@ import {
   expireDealsBeforeMonth,
   insertSnapshot,
   latestCaptureByRouteMonth,
+  logEvent,
   recordApiCall,
 } from '../db/repo.js';
 import { getSettings } from '../db/settings.js';
@@ -38,15 +39,22 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
   const now = deps.now ?? (() => new Date());
   const settings = getSettings(db, config);
 
+  const asOf = sqliteStamp(now());
   if (!settings.scanEnabled) {
+    logEvent(db, { level: 'info', scope: 'batch', message: 'batch skipped: scanning is off', at: asOf });
     return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'scan_disabled' };
   }
 
-  const asOf = sqliteStamp(now());
   expireDealsBeforeMonth(db, asOf.slice(0, 7));
   const used = apiCallsToday(db, provider.name, asOf);
   const remaining = settings.dailyCallBudget - used;
   if (remaining <= 0) {
+    logEvent(db, {
+      level: 'info',
+      scope: 'batch',
+      message: `batch skipped: daily budget spent (${used}/${settings.dailyCallBudget})`,
+      at: asOf,
+    });
     return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'budget_exhausted' };
   }
 
@@ -103,9 +111,26 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
     } catch (err) {
       failures++;
       console.error(`scan failed for ${task.destination} ${task.month} ${task.cabin}:`, err);
+      logEvent(db, {
+        level: 'error',
+        scope: 'scan',
+        message: `${settings.homeAirport}→${task.destination} ${task.month} ${task.cabin}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
+        at: capturedAt,
+      });
     }
   }
 
+  logEvent(db, {
+    level: 'info',
+    scope: 'batch',
+    message:
+      `batch: ${scanned}/${tasks.length} route-months scanned, ${snapshots} prices` +
+      (failures ? `, ${failures} failed` : ''),
+    at: sqliteStamp(now()),
+  });
   return { planned: tasks.length, scanned, snapshots, failures };
 }
 

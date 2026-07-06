@@ -14,9 +14,11 @@ import {
   activeDealsWithPlace,
   activeDestinations,
   apiCallsToday,
+  errorsToday,
   getDealWithPlace,
   lastApiCallAt,
   recentDateOptions,
+  recentEvents,
   routeMonthsWithBaseline,
   type DealWithPlace,
 } from '../db/repo.js';
@@ -146,9 +148,12 @@ export function apiRoutes(deps: AppDeps): Hono {
                 universe,
             ),
       activeDeals: activeDealsWithPlace(db, deps.provider.name, settings.monitoredCabins).length,
+      errorsToday: errorsToday(db),
     };
     return c.json(status);
   });
+
+  api.get('/events', (c) => c.json(recentEvents(db, 50)));
 
   api.post('/scan', async (c) => c.json(await runScanBatch(deps)));
 

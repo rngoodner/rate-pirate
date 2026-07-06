@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { lastApiCallAt, pruneApiCalls, pruneSnapshots } from '../db/repo.js';
+import { lastApiCallAt, logEvent, pruneApiCalls, pruneEvents, pruneSnapshots } from '../db/repo.js';
 import { runScanBatch, type ScanDeps } from './scan.js';
 
 const TIMEZONE = 'America/Denver';
@@ -16,7 +16,9 @@ export function startScheduler(deps: ScanDeps): void {
     () => {
       const snaps = pruneSnapshots(deps.db, 180);
       const calls = pruneApiCalls(deps.db, 60);
-      if (snaps || calls) console.log(`pruned ${snaps} snapshots, ${calls} api_calls`);
+      const events = pruneEvents(deps.db, 30);
+      if (snaps || calls || events)
+        console.log(`pruned ${snaps} snapshots, ${calls} api_calls, ${events} events`);
     },
     { timezone: TIMEZONE },
   );
@@ -40,5 +42,11 @@ async function runBatchLogged(deps: ScanDeps): Promise<void> {
     );
   } catch (err) {
     console.error('scan batch crashed:', err);
+    logEvent(deps.db, {
+      level: 'error',
+      scope: 'batch',
+      message: `batch crashed: ${err instanceof Error ? err.message : String(err)}`,
+      detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
+    });
   }
 }

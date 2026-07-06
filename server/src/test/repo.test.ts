@@ -3,9 +3,13 @@ import { openDb } from '../db/db.js';
 import {
   activeDestinations,
   apiCallsToday,
+  errorsToday,
   insertSnapshot,
   latestCaptureByRouteMonth,
+  logEvent,
+  pruneEvents,
   pruneSnapshots,
+  recentEvents,
   recordApiCall,
   seedDestinations,
   snapshotsForRoute,
@@ -94,6 +98,27 @@ describe('repo', () => {
     recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: false, status: 429 });
     recordApiCall(db, { provider: 'other', endpoint: 'x', ok: true });
     expect(apiCallsToday(db, 'google-flights')).toBe(2);
+  });
+
+  it('logs, lists, counts, and prunes app events', () => {
+    const db = openDb(':memory:');
+    logEvent(db, { level: 'info', scope: 'batch', message: 'batch: 25/25 scanned' });
+    logEvent(db, { level: 'error', scope: 'scan', message: 'ABQ→NAP failed', detail: 'stack…' });
+    // Old event, beyond the prune window and not "today".
+    logEvent(db, {
+      level: 'error',
+      scope: 'scan',
+      message: 'ancient failure',
+      at: '2026-01-01 12:00:00',
+    });
+
+    const events = recentEvents(db, 10);
+    expect(events).toHaveLength(3);
+    expect(events[0]!.message).toContain('ABQ→NAP'); // newest first (same-second: by id)
+    expect(events[0]!.detail).toBe('stack…');
+    expect(errorsToday(db)).toBe(1); // the ancient error is not today
+    expect(pruneEvents(db, 30)).toBe(1);
+    expect(recentEvents(db, 10)).toHaveLength(2);
   });
 
   it('uses the LOCAL day boundary, not UTC midnight', () => {

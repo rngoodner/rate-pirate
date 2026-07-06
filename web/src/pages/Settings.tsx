@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   CABINS,
   CABIN_LABELS,
+  type AppEvent,
   type Cabin,
   type ScanStatus,
   type Settings as SettingsType,
 } from '@rate-pirate/shared';
-import { api } from '../api/client';
+import { api, timeAgo } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
 import { CABIN_CHIP_SELECTED_CLASS } from '../cabinStyle';
 import EmailRecipients from '../components/EmailRecipients';
@@ -14,10 +15,12 @@ import EmailRecipients from '../components/EmailRecipients';
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [status, setStatus] = useState<ScanStatus | null>(null);
+  const [events, setEvents] = useState<AppEvent[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadStatus = useCallback(() => {
     api.status().then(setStatus).catch(() => {});
+    api.events().then(setEvents).catch(() => {});
   }, []);
   useEffect(() => {
     api.settings().then(setSettings).catch(() => {});
@@ -171,6 +174,8 @@ export default function Settings() {
           </div>
         )}
 
+        <ActivityLog events={events} />
+
         <Advanced settings={settings} setSettings={setSettings} save={save} />
 
         {notice && <p className="text-center text-sm text-gray-500">{notice}</p>}
@@ -184,6 +189,80 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="rounded-2xl bg-white p-4 shadow-sm">
       <p className="mb-1 text-sm text-gray-500">{label}</p>
       {children}
+    </div>
+  );
+}
+
+/** Collapsed-by-default log of recent scanner/alert activity and errors —
+ *  the first stop when something looks wrong, before reaching for ssh. */
+function ActivityLog({ events }: { events: AppEvent[] }) {
+  const [open, setOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const errorCount = events.filter((e) => e.level === 'error').length;
+
+  return (
+    <div className="rounded-2xl bg-white shadow-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between p-4"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="flex items-center gap-2 font-bold">
+          Activity log
+          {errorCount > 0 && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
+              {errorCount} {errorCount === 1 ? 'error' : 'errors'}
+            </span>
+          )}
+        </span>
+        <span
+          aria-hidden
+          className={`text-lg text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}
+        >
+          ›
+        </span>
+      </button>
+
+      {open && (
+        <ul className="border-t border-gray-100 px-4 py-2">
+          {events.length === 0 && (
+            <li className="py-2 text-sm text-gray-400">Nothing logged yet.</li>
+          )}
+          {events.map((e) => (
+            <li key={e.id} className="border-b border-gray-50 py-2 last:border-b-0">
+              <button
+                type="button"
+                className="w-full text-left"
+                onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
+              >
+                <span className="flex items-baseline gap-2">
+                  <span className="shrink-0 text-xs text-gray-400">{timeAgo(e.createdAt)}</span>
+                  <span
+                    className={`shrink-0 rounded px-1.5 text-xs font-semibold ${
+                      e.level === 'error' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {e.scope}
+                  </span>
+                </span>
+                <span
+                  className={`mt-0.5 block text-sm ${
+                    e.level === 'error' ? 'text-red-700' : 'text-gray-700'
+                  }`}
+                >
+                  {e.message}
+                </span>
+              </button>
+              {expandedId === e.id && e.detail && (
+                <pre className="mt-1 overflow-x-auto rounded-lg bg-gray-50 p-2 text-xs text-gray-500">
+                  {e.detail}
+                </pre>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

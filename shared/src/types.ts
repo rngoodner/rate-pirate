@@ -116,4 +116,17 @@ export interface ScanStatus {
   /** Fraction of active route-months that have enough history for a baseline. */
   baselineCoverage: number;
   activeDeals: number;
+  /** Error events logged today (local day) — drives the feed failure banner. */
+  errorsToday: number;
+}
+
+/** One row of the in-app activity/error log (Settings → Activity log). */
+export interface AppEvent {
+  id: number;
+  level: 'info' | 'error';
+  scope: string;
+  message: string;
+  detail: string | null;
+  /** SQLite UTC timestamp, 'YYYY-MM-DD HH:MM:SS'. */
+  createdAt: string;
 }

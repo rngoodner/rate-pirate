@@ -480,6 +480,68 @@ export function pruneApiCalls(db: Db, olderThanDays: number): number {
     .run(olderThanDays).changes;
 }
 
+// --- App events (in-app activity/error log) ---
+
+export interface AppEventInput {
+  level: 'info' | 'error';
+  scope: 'scan' | 'batch' | 'alert' | 'system';
+  message: string;
+  detail?: string;
+  /** ISO timestamp override for the simulator; defaults to now. */
+  at?: string;
+}
+
+export interface AppEventRow {
+  id: number;
+  level: 'info' | 'error';
+  scope: string;
+  message: string;
+  detail: string | null;
+  createdAt: string;
+}
+
+const DETAIL_MAX = 2000;
+
+export function logEvent(db: Db, e: AppEventInput): void {
+  db.prepare(
+    `INSERT INTO app_events (level, scope, message, detail, created_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+  ).run(e.level, e.scope, e.message.slice(0, 300), e.detail?.slice(0, DETAIL_MAX) ?? null, e.at ?? null);
+}
+
+export function recentEvents(db: Db, limit: number): AppEventRow[] {
+  return db
+    .prepare(
+      `SELECT id, level, scope, message, detail, created_at AS createdAt
+       FROM app_events ORDER BY created_at DESC, id DESC LIMIT ?`,
+    )
+    .all(limit) as AppEventRow[];
+}
+
+/** Errors logged today; LOCAL day boundary, same rationale as apiCallsToday. */
+export function errorsToday(db: Db, asOf?: string): number {
+  const row = asOf
+    ? (db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM app_events
+           WHERE level = 'error' AND created_at >= date(?) AND created_at <= ?`,
+        )
+        .get(asOf, asOf) as { n: number })
+    : (db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM app_events
+           WHERE level = 'error' AND datetime(created_at, 'localtime') >= date('now', 'localtime')`,
+        )
+        .get() as { n: number });
+  return row.n;
+}
+
+export function pruneEvents(db: Db, olderThanDays: number): number {
+  return db
+    .prepare(`DELETE FROM app_events WHERE created_at < datetime('now', '-' || ? || ' days')`)
+    .run(olderThanDays).changes;
+}
+
 /** Remove all demo/mock artifacts. Called on boot when a real provider is
  *  active so a demo session never bleeds into live data. */
 export function purgeMockData(db: Db): number {
