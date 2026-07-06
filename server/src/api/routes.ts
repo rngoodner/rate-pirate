@@ -164,11 +164,20 @@ export function apiRoutes(deps: AppDeps): Hono {
       departDate: '2026-08-18',
       returnDate: '2026-08-26',
     };
+    // Stamp each test with the current time so repeats aren't byte-identical —
+    // otherwise mail providers thread/dedupe/spam-filter the copies and only the
+    // first one visibly lands. Real alerts are naturally unique, so this is
+    // test-only.
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const html = alertHtml(sample).replace(
+      '</body>',
+      `<p style="text-align:center;color:#9ca3af;font-size:12px">Test sent ${stamp} UTC</p></body>`,
+    );
     try {
       await sender.send({
         to: recipients,
-        subject: `[test] ${alertSubject(sample)}`,
-        html: alertHtml(sample),
+        subject: `[test ${stamp}] ${alertSubject(sample)}`,
+        html,
       });
       return c.json({ sent: true, via: sender.name, to: recipients.join(', ') });
     } catch (err) {
