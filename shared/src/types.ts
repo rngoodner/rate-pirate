@@ -40,6 +40,57 @@ export function isEmail(value: string): boolean {
   return EMAIL_RE.test(value);
 }
 
+// --- Google Flights deep link (tfs protobuf) ---
+// The natural-language `?q=` form asks Google to PARSE a sentence, and the
+// mobile site intermittently fails to apply it (user lands on an empty
+// "Where to?" form). `?tfs=` is the deterministic deep-link format: a
+// base64url protobuf carrying route/dates/cabin exactly. Field numbers per
+// the community-reverse-engineered schema (fast-flights): Info{data=3 legs,
+// passengers=8, seat=9, trip=19}, FlightData{date=2, from=13, to=14},
+// Airport{airport=2}. (The scraper still uses `?q=` — proven reliable
+// headless, and its parser depends on that page variant.)
+
+const SEAT_NUM: Record<Cabin, number> = { economy: 1, premium_economy: 2, business: 3, first: 4 };
+
+function varint(n: number): number[] {
+  const out: number[] = [];
+  while (n > 127) {
+    out.push((n & 0x7f) | 0x80);
+    n >>>= 7;
+  }
+  out.push(n);
+  return out;
+}
+
+function lenDelim(field: number, bytes: number[]): number[] {
+  return [...varint((field << 3) | 2), ...varint(bytes.length), ...bytes];
+}
+
+/** ASCII-only (IATA codes and ISO dates). */
+function strField(field: number, s: string): number[] {
+  return lenDelim(field, [...s].map((c) => c.charCodeAt(0)));
+}
+
+function enumField(field: number, v: number): number[] {
+  return [...varint((field << 3) | 0), ...varint(v)];
+}
+
+function leg(date: string, from: string, to: string): number[] {
+  return [...strField(2, date), ...lenDelim(13, strField(2, from)), ...lenDelim(14, strField(2, to))];
+}
+
+const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function base64url(bytes: number[]): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const [b0, b1, b2] = [bytes[i]!, bytes[i + 1], bytes[i + 2]];
+    out += B64URL[b0 >> 2]! + B64URL[((b0 & 3) << 4) | ((b1 ?? 0) >> 4)]!;
+    if (b1 !== undefined) out += B64URL[((b1 & 15) << 2) | ((b2 ?? 0) >> 6)]!;
+    if (b2 !== undefined) out += B64URL[b2 & 63]!;
+  }
+  return out;
+}
+
 /** Where-to-buy deep link — Rate Pirate never books flights itself. */
 export function googleFlightsUrl(
   origin: string,
@@ -48,11 +99,14 @@ export function googleFlightsUrl(
   returnDate: string,
   cabin: Cabin = 'economy',
 ): string {
-  const phrase = CABIN_QUERY_PHRASE[cabin];
-  const q =
-    `Flights from ${origin} to ${destination} on ${departDate} through ${returnDate}` +
-    (phrase ? ` ${phrase}` : '');
-  return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;
+  const info = [
+    ...lenDelim(3, leg(departDate, origin, destination)),
+    ...lenDelim(3, leg(returnDate, destination, origin)),
+    ...enumField(8, 1), // one adult
+    ...enumField(9, SEAT_NUM[cabin]),
+    ...enumField(19, 1), // round trip
+  ];
+  return `https://www.google.com/travel/flights?tfs=${base64url(info)}&hl=en&curr=USD`;
 }
 
 export interface Deal {

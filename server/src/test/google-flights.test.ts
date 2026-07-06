@@ -6,6 +6,23 @@ import {
   representativeDates,
 } from '../providers/google-flights.js';
 
+describe('googleFlightsUrl (tfs deep link)', () => {
+  it('encodes route/dates/cabin into the exact live-verified tfs payloads', async () => {
+    const { googleFlightsUrl } = await import('@rate-pirate/shared');
+    // These three URLs were loaded against real Google Flights: route, dates,
+    // and cabin all populate (no "Where to?" blank form), priced results render.
+    expect(googleFlightsUrl('ABQ', 'CUN', '2026-09-12', '2026-09-19', 'economy')).toBe(
+      'https://www.google.com/travel/flights?tfs=GhoSCjIwMjYtMDktMTJqBRIDQUJRcgUSA0NVThoaEgoyMDI2LTA5LTE5agUSA0NVTnIFEgNBQlFAAUgBmAEB&hl=en&curr=USD',
+    );
+    expect(googleFlightsUrl('ABQ', 'NAP', '2026-09-12', '2026-09-19', 'business')).toBe(
+      'https://www.google.com/travel/flights?tfs=GhoSCjIwMjYtMDktMTJqBRIDQUJRcgUSA05BUBoaEgoyMDI2LTA5LTE5agUSA05BUHIFEgNBQlFAAUgDmAEB&hl=en&curr=USD',
+    );
+    expect(googleFlightsUrl('ABQ', 'SEA', '2026-09-12', '2026-09-19', 'premium_economy')).toBe(
+      'https://www.google.com/travel/flights?tfs=GhoSCjIwMjYtMDktMTJqBRIDQUJRcgUSA1NFQRoaEgoyMDI2LTA5LTE5agUSA1NFQXIFEgNBQlFAAUgCmAEB&hl=en&curr=USD',
+    );
+  });
+});
+
 describe('parsePriceLevel', () => {
   it('reads the level verdict from body text', () => {
     expect(parsePriceLevel('… Price insights Prices are currently typical View price history …')).toBe('typical');
