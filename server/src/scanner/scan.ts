@@ -31,11 +31,37 @@ export interface ScanResult {
   scanned: number;
   snapshots: number;
   failures: number;
-  skippedReason?: 'scan_disabled' | 'budget_exhausted';
+  skippedReason?: 'scan_disabled' | 'budget_exhausted' | 'already_running';
+}
+
+/** One batch at a time, process-wide. Overlapping batches (manual POST /api/scan
+ *  during a cron batch, boot catch-up near a cron slot) would race the budget
+ *  check, plan identical task lists (double-scraping Google), race the provider's
+ *  browser launch, and race alert cooldowns into duplicate emails. */
+let batchInFlight = false;
+
+/** A Date whose UTC fields equal the server's LOCAL calendar — month boundaries
+ *  (deal expiry, scan horizon) must roll at local midnight, not UTC, which is
+ *  5–6pm in America/Denver. Virtual clocks (simulator) are used as-is. */
+function calendarRef(d: Date, virtualClock: boolean): Date {
+  return virtualClock ? d : new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
 }
 
 export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult> {
+  if (batchInFlight) {
+    return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'already_running' };
+  }
+  batchInFlight = true;
+  try {
+    return await runBatch(deps, batchLimit);
+  } finally {
+    batchInFlight = false;
+  }
+}
+
+async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult> {
   const { db, config, provider } = deps;
+  const virtualClock = deps.now !== undefined;
   const now = deps.now ?? (() => new Date());
   const settings = getSettings(db, config);
 
@@ -45,8 +71,11 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
     return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'scan_disabled' };
   }
 
-  expireDealsBeforeMonth(db, asOf.slice(0, 7));
-  const used = apiCallsToday(db, provider.name, asOf);
+  const calRef = calendarRef(now(), virtualClock);
+  expireDealsBeforeMonth(db, calRef.toISOString().slice(0, 7));
+  // Real clock: count against the LOCAL day (apiCallsToday's no-asOf branch);
+  // the asOf branch exists for the simulator's virtual timestamps only.
+  const used = apiCallsToday(db, provider.name, virtualClock ? asOf : undefined);
   const remaining = settings.dailyCallBudget - used;
   if (remaining <= 0) {
     logEvent(db, {
@@ -64,6 +93,7 @@ export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise
     cabins: settings.monitoredCabins,
     latestCapture: latestCaptureByRouteMonth(db, provider.name, settings.homeAirport),
     now: now(),
+    monthsNow: calRef,
     horizon: settings.scanHorizonMonths,
     limit,
   });

@@ -36,11 +36,15 @@ export function planBatch(opts: {
   /** `${destination}|${month}|${cabin}` → latest captured_at (SQLite datetime). */
   latestCapture: Map<string, string>;
   now: Date;
+  /** Reference date for month bucketing; defaults to `now`. Production passes a
+   *  local-calendar date here so the horizon rolls at local midnight, not UTC —
+   *  while staleness math stays on the real clock. */
+  monthsNow?: Date;
   horizon: number;
   limit: number;
 }): RouteMonthTask[] {
   if (opts.limit <= 0 || opts.cabins.length === 0) return [];
-  const months = horizonMonths(opts.now, opts.horizon);
+  const months = horizonMonths(opts.monthsNow ?? opts.now, opts.horizon);
 
   const candidates = opts.destinations.flatMap((dest) =>
     months.flatMap((month, monthIdx) =>

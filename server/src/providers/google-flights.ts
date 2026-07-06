@@ -78,8 +78,11 @@ class TransientPageError extends ProviderError {
 export class GoogleFlightsProvider implements FlightPriceProvider {
   readonly name = 'google-flights';
   private browser: Browser | null = null;
+  private launching: Promise<Browser> | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
   private lastCallAt = 0;
+  private inFlight = 0;
+  private throttleChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly chromePath: string,
@@ -99,6 +102,22 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
   }
 
   private async fetchQuotes(q: MonthQuery): Promise<RoundTripQuote[]> {
+    // Hold the idle-close timer while any fetch is in flight — a timer armed by
+    // the previous fetch must not close the browser under this one.
+    this.inFlight++;
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    try {
+      return await this.fetchQuotesInner(q);
+    } finally {
+      this.inFlight--;
+      this.scheduleIdleClose();
+    }
+  }
+
+  private async fetchQuotesInner(q: MonthQuery): Promise<RoundTripQuote[]> {
     const { departDate, returnDate } = representativeDates(q.month);
     const route = `${q.origin}-${q.destination} ${q.month} ${q.cabin}`;
     // Economy keeps the exact query proven to work; premium cabins append the
@@ -174,7 +193,6 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
       throw new ProviderError(`google-flights failed for ${route}: ${err}`);
     } finally {
       await page.close().catch(() => {});
-      this.scheduleIdleClose();
     }
   }
 
@@ -184,26 +202,43 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     this.browser = null;
   }
 
+  /** Memoized launch: concurrent callers share one in-flight launch instead of
+   *  racing check-then-launch and orphaning a Chromium process. */
   private async getBrowser(): Promise<Browser> {
     if (this.browser?.connected) return this.browser;
-    this.browser = await puppeteer.launch({
-      executablePath: this.chromePath,
-      headless: true,
-      args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--lang=en-US'],
-    });
-    return this.browser;
+    this.launching ??= puppeteer
+      .launch({
+        executablePath: this.chromePath,
+        headless: true,
+        args: ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--lang=en-US'],
+      })
+      .then((b) => {
+        this.browser = b;
+        return b;
+      })
+      .finally(() => {
+        this.launching = null;
+      });
+    return this.launching;
   }
 
   private scheduleIdleClose(): void {
+    if (this.inFlight > 0) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => void this.close(), BROWSER_IDLE_CLOSE_MS);
     this.idleTimer.unref();
   }
 
-  private async throttle(): Promise<void> {
-    const gap = MIN_CALL_GAP_MS + Math.random() * CALL_JITTER_MS;
-    const wait = this.lastCallAt + gap - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    this.lastCallAt = Date.now();
+  /** Promise-chain queue: concurrent callers are strictly sequenced so the
+   *  pacing gap to Google holds even if two scans ever overlap. */
+  private throttle(): Promise<void> {
+    const turn = this.throttleChain.then(async () => {
+      const gap = MIN_CALL_GAP_MS + Math.random() * CALL_JITTER_MS;
+      const wait = this.lastCallAt + gap - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      this.lastCallAt = Date.now();
+    });
+    this.throttleChain = turn;
+    return turn;
   }
 }
