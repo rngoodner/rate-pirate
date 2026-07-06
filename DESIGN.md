@@ -184,7 +184,7 @@ A price 40% below baseline and cheaper than all history ≈ 100; a median price 
 - baseline exists (cold-start gate)
 - cooldown: no alert for this route+month in 7 days, **unless** price is ≥10% below the last alerted price (re-alert on deepening deals)
 
-**Email** (Resend): subject like `✈ ABQ → Naples $758 (33% off, score 93) — Aug 2026`; HTML body mirrors the deal card, includes the exact dates and a **Google Flights deep link** (`https://www.google.com/travel/flights?q=Flights from ABQ to NAP on {depart} through {return}`) — this is the "where to purchase" pointer. Footer notes prices are indicative. Recorded in `alerts`.
+**Email** (Resend): subject like `✈ ABQ → Naples $758 (33% off, score 93) — Aug 2026`; HTML body mirrors the deal card, includes the exact dates and a **Google Flights deep link** (`https://www.google.com/travel/flights?tfs=…` — a deterministic base64 protobuf of route/dates/cabin; the natural-language `?q=` form was dropped after it silently failed to apply the premium-economy cabin filter) — this is the "where to purchase" pointer. Footer notes prices are indicative. Recorded in `alerts`.
 
 ## 7. HTTP API
 

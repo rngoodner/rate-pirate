@@ -124,6 +124,10 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   let scanned = 0;
   let snapshots = 0;
   let failures = 0;
+  // Per-cabin tallies catch the failure mode where one cabin silently returns
+  // zero prices for every route (e.g. a query format Google stops honoring)
+  // while other cabins keep the batch looking healthy.
+  const byCabin = new Map<string, { scanned: number; snapshots: number }>();
   for (const task of tasks) {
     // Re-check the budget each task: the plan-time count doesn't include the
     // calls this batch has since made (retries log an extra call each), so a
@@ -183,6 +187,10 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
         });
       }
       scanned++;
+      const tally = byCabin.get(task.cabin) ?? { scanned: 0, snapshots: 0 };
+      tally.scanned++;
+      tally.snapshots += Math.min(quotes.length, MAX_SNAPSHOTS_PER_SCAN);
+      byCabin.set(task.cabin, tally);
       for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
         insertSnapshot(db, {
           origin: q.origin,
@@ -235,6 +243,19 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       message: `possible scraper breakage: ${scanned} scans succeeded but returned zero prices — Google may have changed its page format`,
       at: sqliteStamp(now()),
     });
+  } else {
+    // Per-cabin variant: a cabin with a decent sample but zero prices while
+    // the batch overall is healthy — e.g. its query format stopped working.
+    for (const [cabin, t] of byCabin) {
+      if (t.scanned >= 8 && t.snapshots === 0) {
+        logEvent(db, {
+          level: 'error',
+          scope: 'batch',
+          message: `no ${cabin} prices in ${t.scanned} scans — that cabin may be broken while others work`,
+          at: sqliteStamp(now()),
+        });
+      }
+    }
   }
   return { planned: tasks.length, scanned, snapshots, failures };
 }

@@ -11,7 +11,7 @@ declare const document: {
   }>;
   body: { innerText: string };
 };
-import { CABIN_QUERY_PHRASE } from '@rate-pirate/shared';
+import { googleFlightsUrl } from '@rate-pirate/shared';
 import type {
   CallLog,
   FlightPriceProvider,
@@ -151,13 +151,11 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
   private async fetchQuotesInner(q: MonthQuery): Promise<MonthResult> {
     const { departDate, returnDate } = representativeDates(q.month);
     const route = `${q.origin}-${q.destination} ${q.month} ${q.cabin}`;
-    // Economy keeps the exact query proven to work; premium cabins append the
-    // cabin phrase Google's natural-language search understands.
-    const phrase = CABIN_QUERY_PHRASE[q.cabin];
-    const query =
-      `Flights from ${q.origin} to ${q.destination} on ${departDate} through ${returnDate}` +
-      (phrase ? ` ${phrase}` : '');
-    const url = `https://www.google.com/travel/flights?q=${encodeURIComponent(query)}&hl=en&curr=USD`;
+    // Deterministic tfs deep link (same builder as the booking links). The old
+    // natural-language `q=` form silently failed to parse the "in premium
+    // economy" phrase — Google dropped us on the empty search form, so premium
+    // economy collected ZERO data. tfs specifies the cabin exactly, no parsing.
+    const url = googleFlightsUrl(q.origin, q.destination, departDate, returnDate, q.cabin);
 
     await this.throttle();
     const page = await (await this.getBrowser()).newPage();
