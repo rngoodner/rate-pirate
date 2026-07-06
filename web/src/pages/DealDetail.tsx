@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { DealDetail as DealDetailType } from '@rate-pirate/shared';
-import { api, monthLabel, shortDate } from '../api/client';
+import { api, monthLabel, shortDate, usd } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
 import ScoreBadge from '../components/ScoreBadge';
 import PriceTag from '../components/PriceTag';
@@ -68,6 +68,15 @@ export default function DealDetail() {
             rel="noreferrer"
             className="block rounded-2xl border border-green-200 bg-green-50 p-4 active:bg-green-100"
           >
+            {(() => {
+              const savedCents =
+                (best.baselinePriceCents ?? deal.baselinePriceCents) - best.priceCents;
+              return savedCents > 0 ? (
+                <p className="mb-3 rounded-xl bg-green-600 px-3 py-2 text-sm font-bold text-white">
+                  💰 Save {usd(savedCents)} vs the typical fare
+                </p>
+              ) : null;
+            })()}
             <div className="mb-2 flex gap-2">
               <Badge>Cheapest</Badge>
             </div>
