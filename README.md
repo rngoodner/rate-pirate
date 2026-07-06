@@ -83,10 +83,13 @@ paid Proton plan. One-time setup on `your-server.local`:
 
 1. **Install Bridge (headless).** Download the Debian package from
    <https://proton.me/mail/bridge> (or `proton-mail-bridge` if packaged) and install it.
-   Bridge needs a keychain to store its vault; on a headless box install `pass`:
+   Bridge needs a keychain to store its vault; on a headless box use `pass` (backed by
+   a passphrase-less GPG key so Bridge can decrypt non-interactively). Run these as the
+   **same user that will run Bridge** — the keychain is per-user:
    ```bash
-   sudo apt install -y pass
-   gpg --quick-generate-key "rate-pirate bridge" && pass init "rate-pirate bridge"
+   sudo apt install -y pass gnupg
+   gpg --batch --passphrase '' --quick-generate-key "rate-pirate-bridge" default default never
+   pass init "$(gpg --list-secret-keys --with-colons rate-pirate-bridge | awk -F: '/^fpr:/{print $10; exit}')"
    ```
 2. **Log in.** Run the Bridge CLI and sign in with your Proton account (+ 2FA):
    ```bash
