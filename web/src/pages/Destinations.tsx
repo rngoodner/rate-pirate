@@ -56,8 +56,7 @@ export default function Destinations() {
         </Link>
         <h1 className="mt-2 text-xl font-black tracking-tight">Destinations</h1>
         <p className="text-sm text-gray-600">
-          {destinations ? `${activeCount} of ${destinations.length} scanned` : '…'} — fewer
-          destinations = each one checked more often.
+          {destinations ? `${activeCount} of ${destinations.length} scanned` : '…'}
         </p>
       </header>
 
@@ -71,10 +70,12 @@ export default function Destinations() {
           onChange={(e) => setQuery(e.target.value)}
         />
 
-        <p className="px-1 text-xs text-gray-400">
-          The tag on each row sets how often it’s scanned: <b>favorite</b> most often, then{' '}
-          <b>regular</b>, then <b>long-tail</b>.
-        </p>
+        <div className="rounded-2xl bg-white px-4 py-3 text-xs text-gray-500 shadow-sm">
+          Toggle a destination on or off to control what gets scanned. Turning one off stops
+          future scans and drops its deals, but keeps price history. Each row’s tag is its scan
+          frequency — <b>favorite</b> most often, then <b>regular</b>, then <b>long-tail</b>; and
+          the fewer you scan, the more often each is checked.
+        </div>
 
         {notice && <p className="text-center text-sm text-red-600">{notice}</p>}
         {shown === null && <p className="mt-8 text-center text-gray-400">Loading…</p>}
@@ -107,10 +108,6 @@ export default function Destinations() {
             </li>
           ))}
         </ul>
-
-        <p className="text-center text-xs text-gray-400">
-          Deactivating stops future scans and removes its deals; price history is kept.
-        </p>
       </div>
     </div>
   );
