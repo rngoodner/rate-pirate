@@ -111,7 +111,8 @@ export default function Settings() {
             onKeyUp={() => save({ alertThreshold: settings.alertThreshold })}
           />
           <p className="text-xs text-gray-500">
-            Higher = fewer, better deals. Emails also require the price to be ≥20% below normal.
+            Higher = fewer, better deals. Emails also require the price to be ≥
+            {Math.round(settings.alertMinDiscount * 100)}% below normal (set under Advanced).
           </p>
         </Field>
 
@@ -313,7 +314,7 @@ function Advanced({
 
           <AdvField
             label={`Alert minimum discount — ${Math.round(settings.alertMinDiscount * 100)}%`}
-            hint="Emails require BOTH a score above the alert threshold AND a discount at least this far below the baseline."
+            hint={`Emails require BOTH a score of at least ${settings.alertThreshold} (the alert threshold above) AND a discount this far below the baseline.`}
           >
             <input
               className="w-full accent-brand"
