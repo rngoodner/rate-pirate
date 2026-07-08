@@ -168,6 +168,39 @@ export function parseExploreRpc(raw: string): ExploreDestination[] {
   return out;
 }
 
+/** Whole-globe map bounds, as Explore's RPC expects them: [[north, east],
+ *  [south, west]]. Explore is a map interface — it only returns destinations
+ *  inside the current viewport, which defaults to a REGIONAL (US) window
+ *  centered on the origin. Overriding the bounds to the whole world is what
+ *  "zooming all the way out" does on the site, and it's the difference between
+ *  ~50 US destinations and worldwide coverage. */
+const WORLDWIDE_BOUNDS = [
+  [85, 180],
+  [-85, -180],
+];
+
+/** Rewrite an Explore RPC POST body (`f.req=…`) so the search covers the whole
+ *  world instead of the default regional viewport. The map bounds live in the
+ *  2nd element of the inner request array; the trailing `2` is the "user moved
+ *  the map" flag the site adds. Returns the body unchanged if it doesn't parse
+ *  (fail safe → regional results rather than a broken request). */
+export function withWorldwideBounds(postData: string): string {
+  try {
+    const params = new URLSearchParams(postData);
+    const freq = params.get('f.req');
+    if (!freq) return postData;
+    const arr = JSON.parse(freq) as [null, string];
+    const inner = JSON.parse(arr[1]) as unknown[];
+    inner[1] = WORLDWIDE_BOUNDS;
+    if (inner.length < 12) inner.push(2);
+    arr[1] = JSON.stringify(inner);
+    params.set('f.req', JSON.stringify(arr));
+    return params.toString();
+  } catch {
+    return postData;
+  }
+}
+
 /** "Prices are currently low|typical|high" from the results page body text. */
 export function parsePriceLevel(bodyText: string): PriceInsights['level'] {
   const m = bodyText.match(/Prices are currently\s+(low|typical|high)/i);
@@ -273,6 +306,20 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     try {
       page = await (await this.getBrowser()).newPage();
       let rpc = '';
+      // Rewrite the Explore search request to cover the whole world instead of
+      // the default regional viewport (see withWorldwideBounds). Only the first
+      // matching request is rewritten; everything else passes through untouched.
+      let boundsInjected = false;
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        const pd = req.postData();
+        if (!boundsInjected && req.method() === 'POST' && /FlightsFrontendUi\/data/.test(req.url()) && pd) {
+          boundsInjected = true;
+          void req.continue({ postData: withWorldwideBounds(pd) });
+          return;
+        }
+        void req.continue();
+      });
       page.on('response', (r) => {
         if (rpc || r.request().method() !== 'POST' || !/FlightsFrontendUi\/data/.test(r.url())) return;
         void r

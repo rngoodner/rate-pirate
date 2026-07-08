@@ -5,6 +5,7 @@ import {
   parsePriceLevel,
   parseResultLabel,
   representativeDates,
+  withWorldwideBounds,
 } from '../providers/google-flights.js';
 
 describe('parseExploreRpc', () => {
@@ -59,6 +60,29 @@ describe('googleFlightsUrl (tfs deep link)', () => {
     expect(googleFlightsUrl('ABQ', 'CUN', '2026-09-12', '2026-09-19', 'economy', 1)).toBe(one);
     // A different party size must produce a different (adult-count) payload.
     expect(googleFlightsUrl('ABQ', 'CUN', '2026-09-12', '2026-09-19', 'economy', 3)).not.toBe(one);
+  });
+});
+
+describe('withWorldwideBounds', () => {
+  const bodyFor = (inner: unknown[]) =>
+    'f.req=' + encodeURIComponent(JSON.stringify([null, JSON.stringify(inner)])) + '&at=token123';
+
+  it('injects whole-globe map bounds into the Explore request (2nd field) + move flag', () => {
+    // The default request has no bounds and 11 elements.
+    const inner = [[], null, null, [['ABQ']], null, 1, null, 0, null, 1, [964, 920]];
+    const params = new URLSearchParams(withWorldwideBounds(bodyFor(inner)));
+    const outInner = JSON.parse(JSON.parse(params.get('f.req')!)[1]) as unknown[];
+    expect(outInner[1]).toEqual([
+      [85, 180],
+      [-85, -180],
+    ]);
+    expect(outInner[outInner.length - 1]).toBe(2); // "user moved the map" flag
+    expect(params.get('at')).toBe('token123'); // session token untouched
+  });
+
+  it('returns the body unchanged when there is no f.req or it does not parse', () => {
+    expect(withWorldwideBounds('garbage=1')).toBe('garbage=1');
+    expect(withWorldwideBounds('f.req=not-json&at=x')).toBe('f.req=not-json&at=x');
   });
 });
 
