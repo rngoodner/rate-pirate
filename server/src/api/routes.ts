@@ -215,6 +215,27 @@ export function apiRoutes(deps: AppDeps): Hono {
         message: `feed floor changed to ${Math.round(after.dealMinDiscount * 100)}% — re-evaluated ${combos} combos, ${active} active deal${active === 1 ? '' : 's'}`,
       });
     }
+    // Any change to the scan universe (home airport, party size, cabins, trip
+    // types) invalidates or empties the current feed, and the data can't just be
+    // re-derived from what's stored — it needs fresh prices. Kick off a scan in
+    // the background so the feed refills in seconds instead of going dark until
+    // the next cron batch. Fire-and-forget: the PUT returns immediately and the
+    // client auto-refresh picks up the new deals as they land. (Skipped when
+    // scanning is off, or coalesced by the batch mutex if one is already running.)
+    const universeChanged =
+      after.homeAirport !== before.homeAirport ||
+      after.adults !== before.adults ||
+      after.monitoredCabins.join(',') !== before.monitoredCabins.join(',') ||
+      after.tripTypes.join(',') !== before.tripTypes.join(',');
+    if (universeChanged && after.scanEnabled) {
+      void runScanBatch(deps).catch((err) =>
+        logEvent(db, {
+          level: 'error',
+          scope: 'scan',
+          message: `settings-triggered scan failed: ${err instanceof Error ? err.message : String(err)}`,
+        }),
+      );
+    }
     return c.json(after);
   });
 
