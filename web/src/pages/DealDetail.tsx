@@ -58,9 +58,11 @@ export default function DealDetail() {
       </header>
 
       <div className="flex flex-col gap-3 p-4">
-        <Sparkline points={deal.priceHistory} baselineCents={deal.baselinePriceCents} />
-
-        {deal.googleLevel && <GoogleVerdict level={deal.googleLevel} />}
+        <Sparkline
+          points={deal.priceHistory}
+          baselineCents={deal.baselinePriceCents}
+          verdict={deal.googleLevel}
+        />
 
         <a
           href={deal.googleFlightsUrl}
@@ -96,20 +98,6 @@ export default function DealDetail() {
         </p>
       </div>
     </div>
-  );
-}
-
-/** Google's own current-price verdict for this trip, surfaced as a small badge. */
-function GoogleVerdict({ level }: { level: 'low' | 'typical' | 'high' }) {
-  const style = {
-    low: { cls: 'bg-green-50 text-green-700', text: 'low right now' },
-    typical: { cls: 'bg-gray-100 text-gray-600', text: 'typical right now' },
-    high: { cls: 'bg-amber-50 text-amber-700', text: 'high right now' },
-  }[level];
-  return (
-    <p className={`rounded-xl px-3 py-2 text-sm font-semibold ${style.cls}`}>
-      Google says prices are {style.text}
-    </p>
   );
 }
 

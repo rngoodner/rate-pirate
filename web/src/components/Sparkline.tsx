@@ -1,14 +1,23 @@
 import type { PricePoint } from '@rate-pirate/shared';
 import { usd } from '../api/client';
 
+const VERDICT = {
+  low: { cls: 'text-green-700', text: 'low right now' },
+  typical: { cls: 'text-gray-500', text: 'typical right now' },
+  high: { cls: 'text-amber-700', text: 'high right now' },
+};
+
 /** Price-history sparkline: Google's ~60-day daily-low prices for this trip,
- *  with the typical price dashed in. Answers "is this actually low?" at a glance. */
+ *  with the typical price dashed in. Answers "is this actually low?" at a glance.
+ *  Google's own current-price verdict rides along inside the same card. */
 export default function Sparkline({
   points,
   baselineCents,
+  verdict,
 }: {
   points: PricePoint[];
   baselineCents: number;
+  verdict?: 'low' | 'typical' | 'high' | null;
 }) {
   if (points.length < 2) return null;
 
@@ -51,6 +60,11 @@ export default function Sparkline({
         <path d={path} fill="none" stroke="#35b6ea" strokeWidth="2.5" strokeLinejoin="round" />
         <circle cx={x(points.length - 1)} cy={y(last.priceCents)} r="3.5" fill="#35b6ea" />
       </svg>
+      {verdict && (
+        <p className={`mt-1 text-sm font-semibold ${VERDICT[verdict].cls}`}>
+          Google says prices are {VERDICT[verdict].text}
+        </p>
+      )}
       <p className="mt-1 text-xs text-gray-400">
         Google's price history for this trip. Dashed line = typical price (
         {usd(baselineCents)}).
