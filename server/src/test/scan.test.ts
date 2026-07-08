@@ -61,6 +61,27 @@ describe('runScanBatch guards', () => {
     expect(anomaly!.message).toContain('zero prices');
   });
 
+  it('flags Explore returning zero destinations across all searches as breakage', async () => {
+    // Searches "succeed" (page loads) but discover nothing — the signature of
+    // Google changing the Explore RPC. scanned stays 0, so the zero-price check
+    // can't catch it; the zero-destinations check must.
+    const emptyExplore: FlightPriceProvider = {
+      name: 'mock',
+      exploreSearch: async () => [],
+      monthQuotes: async () => ({ quotes: [], insights: null }),
+    };
+    const deps = makeDeps(emptyExplore);
+    updateSettings(deps.db, { monitoredCabins: ['economy'], tripTypes: ['weekend', 'one_week'] });
+    const result = await runScanBatch(deps);
+    expect(result.scanned).toBe(0);
+    expect(result.planned).toBe(0);
+    const anomaly = recentEvents(deps.db, 10).find(
+      (e) => e.level === 'error' && /zero destinations/.test(e.message),
+    );
+    expect(anomaly).toBeDefined();
+    expect(anomaly!.scope).toBe('batch');
+  });
+
   it('drops a shown deal once its fares vanish (post-scan verification)', async () => {
     const db = openDb(':memory:');
     updateSettings(db, { dailyCallBudget: 2000, monitoredCabins: ['economy'] });

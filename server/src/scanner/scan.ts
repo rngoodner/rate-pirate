@@ -122,6 +122,7 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   let snapshots = 0;
   let failures = 0;
   let planned = 0;
+  let searchesRun = 0; // successful Explore searches, even ones that returned nothing
   const scannedCombos = new Set<string>();
   // Per-cabin tallies catch the failure mode where one cabin silently returns
   // zero prices for every candidate while other cabins keep the batch healthy.
@@ -154,6 +155,11 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
         continue;
       }
 
+      searchesRun++;
+      // Explore returned nothing for this combo: don't mark it scanned, so the
+      // verify pass re-prices any shown deals here (rather than leaving them
+      // stale) and we never expire a whole combo's feed on a transient empty.
+      if (destinations.length === 0) continue;
       scannedCombos.add(`${cabin}|${tripType}`);
       planned += destinations.length;
       for (const d of destinations) {
@@ -188,18 +194,17 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
         }
       }
       // Inherent verification: a shown deal whose destination Explore no longer
-      // ranks for this trip shape is gone. Only when Explore actually returned a
-      // list — never nuke the feed on a transient empty/failed search.
-      if (destinations.length > 0) {
-        expireDealsNotSeen(
-          db,
-          provider.name,
-          settings.homeAirport,
-          cabin,
-          tripType,
-          destinations.map((x) => x.iata),
-        );
-      }
+      // ranks for this trip shape is gone. (Reached only when Explore returned a
+      // non-empty list — the empty case `continue`d above, so we never nuke a
+      // whole combo's feed on a transient empty/failed search.)
+      expireDealsNotSeen(
+        db,
+        provider.name,
+        settings.homeAirport,
+        cabin,
+        tripType,
+        destinations.map((x) => x.iata),
+      );
     }
   }
 
@@ -217,6 +222,18 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       (failures ? `, ${failures} failed` : ''),
     at: sqliteStamp(now()),
   });
+  // Anomaly: Explore searches ran but discovered zero destinations across all
+  // of them. Each search reports ok (the page loaded), so without this the
+  // breakage is invisible — the feed just quietly empties. The signature of
+  // Google changing the Explore RPC format or serving a non-English page.
+  if (searchesRun > 0 && planned === 0) {
+    logEvent(db, {
+      level: 'error',
+      scope: 'batch',
+      message: `possible scraper breakage: ${searchesRun} Explore search${searchesRun === 1 ? '' : 'es'} returned zero destinations — Google may have changed its Explore format`,
+      at: sqliteStamp(now()),
+    });
+  }
   // Anomaly: a sizable batch where every scan "succeeded" with zero prices is
   // the signature of Google changing its markup (or serving a non-English page).
   if (scanned >= 10 && snapshots === 0) {
