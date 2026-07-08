@@ -1,11 +1,30 @@
 import type { Cabin } from '@rate-pirate/shared';
 import type {
+  ExploreDestination,
+  ExploreQuery,
   FlightPriceProvider,
   MonthQuery,
   MonthResult,
   PriceInsights,
   RoundTripQuote,
 } from './types.js';
+
+/** A small synthetic destination catalog so demo/tests exercise the Explore
+ *  flow offline. IATA → city, country. */
+const MOCK_DESTINATIONS: { iata: string; city: string; country: string }[] = [
+  { iata: 'CUN', city: 'Cancún', country: 'Mexico' },
+  { iata: 'NAP', city: 'Naples', country: 'Italy' },
+  { iata: 'LIS', city: 'Lisbon', country: 'Portugal' },
+  { iata: 'LAS', city: 'Las Vegas', country: 'United States' },
+  { iata: 'SEA', city: 'Seattle', country: 'United States' },
+  { iata: 'CDG', city: 'Paris', country: 'France' },
+  { iata: 'NRT', city: 'Tokyo', country: 'Japan' },
+  { iata: 'SJU', city: 'San Juan', country: 'Puerto Rico' },
+  { iata: 'DPS', city: 'Bali', country: 'Indonesia' },
+  { iata: 'KEF', city: 'Reykjavík', country: 'Iceland' },
+  { iata: 'MEX', city: 'Mexico City', country: 'Mexico' },
+  { iata: 'BCN', city: 'Barcelona', country: 'Spain' },
+];
 
 /** Rough real-world round-trip price multipliers relative to economy. */
 const CABIN_PRICE_FACTOR: Record<Cabin, number> = {
@@ -42,6 +61,28 @@ export class SyntheticProvider implements FlightPriceProvider {
 
   clearDrop(destination: string, month: string): void {
     this.drops.delete(`${destination}|${month}`);
+  }
+
+  /** Synthetic Explore: the mock catalog ranked cheapest-first for the cabin,
+   *  each with representative dates a few weeks out. Deterministic per day. */
+  async exploreSearch(q: ExploreQuery): Promise<ExploreDestination[]> {
+    const today = this.now();
+    const dayKey = Math.floor(today.getTime() / 86_400_000);
+    const tripNights = q.tripType === 'weekend' ? 3 : q.tripType === 'one_week' ? 7 : 14;
+    const ranked = [...MOCK_DESTINATIONS].sort(
+      (a, b) => this.basePrice(a.iata) - this.basePrice(b.iata),
+    );
+    return ranked.map((d, i) => {
+      const depart = new Date((dayKey + 21 + i * 5) * 86_400_000);
+      const ret = new Date(depart.getTime() + tripNights * 86_400_000);
+      return {
+        iata: d.iata,
+        city: d.city,
+        country: d.country,
+        departDate: depart.toISOString().slice(0, 10),
+        returnDate: ret.toISOString().slice(0, 10),
+      };
+    });
   }
 
   async monthQuotes(q: MonthQuery): Promise<MonthResult> {

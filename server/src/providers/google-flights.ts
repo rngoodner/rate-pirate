@@ -11,9 +11,11 @@ declare const document: {
   }>;
   body: { innerText: string };
 };
-import { googleFlightsUrl } from '@rate-pirate/shared';
+import { exploreUrl, googleFlightsUrl } from '@rate-pirate/shared';
 import type {
   CallLog,
+  ExploreDestination,
+  ExploreQuery,
   FlightPriceProvider,
   MonthQuery,
   MonthResult,
@@ -35,6 +37,8 @@ const MIN_CALL_GAP_MS = 2000;
 const CALL_JITTER_MS = 1500;
 const BROWSER_IDLE_CLOSE_MS = 3 * 60_000;
 const RESULT_TIMEOUT_MS = 30_000;
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const MAX_QUOTES = 5;
 
 const CHROME_CANDIDATES = [
@@ -64,6 +68,77 @@ export function parseResultLabel(
     : Number(label.match(/(\d+) stops? flight/)?.[1] ?? 1);
   const carrier = (label.match(/flight with ([^.]+?)\./)?.[1] ?? '').slice(0, 60);
   return { priceUsd: Number(price[1]!.replaceAll(',', '')), stops, carrier };
+}
+
+/** Parse a Google Flights "Explore" RPC response (FlightsFrontendUi/data) into
+ *  its ranked destination list. Explore returns structured JSON — robust to
+ *  parse — where each destination entry is a positional array: [0]=entity id
+ *  "/m/…", [2]=city, [4]=country, [11]=depart, [12]=return, [15]=IATA. Prices
+ *  are NOT in this payload (the scanner fetches them per candidate). */
+export function parseExploreRpc(raw: string): ExploreDestination[] {
+  let body = raw;
+  if (body.startsWith(")]}'")) body = body.slice(body.indexOf('\n') + 1);
+  const start = body.indexOf('[');
+  if (start < 0) return [];
+  // Bracket-match the first complete JSON array (batchexecute appends more).
+  let depth = 0;
+  let end = -1;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < body.length; i++) {
+    const c = body[i]!;
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '[') depth++;
+    else if (c === ']' && --depth === 0) {
+      end = i + 1;
+      break;
+    }
+  }
+  if (end < 0) return [];
+  let payload: unknown;
+  try {
+    const outer = JSON.parse(body.slice(start, end)) as unknown[];
+    const wrb = outer.find(
+      (r): r is unknown[] => Array.isArray(r) && r[0] === 'wrb.fr' && typeof r[2] === 'string',
+    );
+    if (!wrb) return [];
+    payload = JSON.parse(wrb[2] as string);
+  } catch {
+    return [];
+  }
+  const out: ExploreDestination[] = [];
+  const seen = new Set<string>();
+  const walk = (x: unknown): void => {
+    if (!Array.isArray(x)) return;
+    const iata = x[15];
+    if (typeof x[0] === 'string' && (x[0] as string).startsWith('/m/') && typeof iata === 'string') {
+      if (
+        /^[A-Z]{3}$/.test(iata) &&
+        !seen.has(iata) &&
+        typeof x[11] === 'string' &&
+        typeof x[12] === 'string'
+      ) {
+        seen.add(iata);
+        out.push({
+          iata,
+          city: String(x[2] ?? iata),
+          country: String(x[4] ?? ''),
+          departDate: x[11] as string,
+          returnDate: x[12] as string,
+        });
+      }
+      return; // a destination entry has no nested destinations
+    }
+    for (const e of x) walk(e);
+  };
+  walk(payload);
+  return out;
 }
 
 /** "Prices are currently low|typical|high" from the results page body text. */
@@ -153,8 +228,56 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     }
   }
 
+  /** One Explore page load → the ranked destination list (IATA + dates) parsed
+   *  from the FlightsFrontendUi RPC response. Prices are fetched separately by
+   *  the scanner via `monthQuotes` with the returned exact dates. */
+  async exploreSearch(q: ExploreQuery): Promise<ExploreDestination[]> {
+    await this.throttle();
+    this.inFlight++;
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    const page = await (await this.getBrowser()).newPage();
+    let rpc = '';
+    page.on('response', (r) => {
+      if (rpc || r.request().method() !== 'POST' || !/FlightsFrontendUi\/data/.test(r.url())) return;
+      void r
+        .text()
+        .then((t) => {
+          if (t.length > 20_000 && !rpc) rpc = t;
+        })
+        .catch(() => {});
+    });
+    const route = `${q.origin} ${q.tripType} ${q.cabin}`;
+    try {
+      await page.setUserAgent(USER_AGENT);
+      await page.setViewport({ width: 1280, height: 1000 });
+      await page.goto(exploreUrl(q.origin, q.cabin, q.tripType, q.adults), {
+        waitUntil: 'networkidle2',
+        timeout: RESULT_TIMEOUT_MS,
+      });
+      // The RPC usually lands during load; give it a moment if not.
+      for (let i = 0; i < 20 && !rpc; i++) await new Promise((r) => setTimeout(r, 300));
+      const dests = parseExploreRpc(rpc);
+      this.onCall?.({ endpoint: 'explore', route, status: 200, ok: true });
+      return dests;
+    } catch (err) {
+      this.onCall?.({ endpoint: 'explore', route, ok: false });
+      throw err instanceof ProviderError ? err : new ProviderError(`explore failed for ${route}: ${err}`);
+    } finally {
+      await page.close().catch(() => {});
+      this.inFlight--;
+      this.scheduleIdleClose();
+    }
+  }
+
   private async fetchQuotesInner(q: MonthQuery): Promise<MonthResult> {
-    const { departDate, returnDate } = representativeDates(q.month, q.nights, q.departureDow);
+    // Exact dates (Explore candidate) take precedence over the month sample.
+    const { departDate, returnDate } =
+      q.departDate && q.returnDate
+        ? { departDate: q.departDate, returnDate: q.returnDate }
+        : representativeDates(q.month, q.nights, q.departureDow);
     const route = `${q.origin}-${q.destination} ${q.month} ${q.cabin}`;
     // Deterministic tfs deep link (same builder as the booking links). The old
     // natural-language `q=` form silently failed to parse the "in premium
@@ -165,9 +288,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     await this.throttle();
     const page = await (await this.getBrowser()).newPage();
     try {
-      await page.setUserAgent(
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-      );
+      await page.setUserAgent(USER_AGENT);
       await page.setViewport({ width: 1280, height: 900 });
       await page.goto(url, { waitUntil: 'networkidle2', timeout: RESULT_TIMEOUT_MS });
 

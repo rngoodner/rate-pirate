@@ -162,6 +162,7 @@ describe('API routes', () => {
     seedDestinations(db, DESTINATION_CATALOG);
     const broken: FlightPriceProvider = {
       name: 'mock',
+      exploreSearch: async () => [],
       monthQuotes: async () => {
         throw new Error('scrape blocked');
       },

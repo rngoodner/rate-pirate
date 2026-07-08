@@ -1,10 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import {
+  parseExploreRpc,
   parseHistoryLabel,
   parsePriceLevel,
   parseResultLabel,
   representativeDates,
 } from '../providers/google-flights.js';
+
+describe('parseExploreRpc', () => {
+  // Minimal fixture matching the real batchexecute envelope: )]}' prefix, a
+  // length line, then [["wrb.fr", null, "<json payload string>", …]]. Each
+  // destination is a positional array: [0]="/m/…", [2]=city, [4]=country,
+  // [11]=depart, [12]=return, [15]=IATA.
+  function envelope(payload: unknown): string {
+    const inner = JSON.stringify(payload);
+    const outer = JSON.stringify([['wrb.fr', null, inner, null, null, null, 'generic']]);
+    return `)]}'\n\n${outer.length}\n${outer}`;
+  }
+  const dest = (mid: string, city: string, country: string, dep: string, ret: string, iata: string) =>
+    [mid, [1, 2], city, 'img', country, 1, 2, 'img', null, null, null, dep, ret, null, false, iata];
+
+  it('parses destinations (iata, city, country, dates) from the RPC envelope', () => {
+    const raw = envelope([null, null, null, [[dest('/m/0cv3w', 'Las Vegas', 'United States', '2026-08-06', '2026-08-12', 'LAS'), dest('/m/04jpl', 'London', 'United Kingdom', '2026-09-05', '2026-09-12', 'LON')]]]);
+    const out = parseExploreRpc(raw);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ iata: 'LAS', city: 'Las Vegas', country: 'United States', departDate: '2026-08-06', returnDate: '2026-08-12' });
+    expect(out[1]!.iata).toBe('LON');
+  });
+
+  it('skips entries without a valid IATA and dedupes; tolerates junk', () => {
+    const raw = envelope([[[dest('/m/x', 'Zion', 'United States', '2026-08-06', '2026-08-12', 'Zion National Park'), dest('/m/y', 'Cancún', 'Mexico', '2026-08-06', '2026-08-12', 'CUN'), dest('/m/z', 'Cancún', 'Mexico', '2026-08-06', '2026-08-12', 'CUN')]]]);
+    const out = parseExploreRpc(raw);
+    expect(out.map((d) => d.iata)).toEqual(['CUN']); // non-IATA skipped, dupe removed
+    expect(parseExploreRpc('not json at all')).toEqual([]);
+    expect(parseExploreRpc('')).toEqual([]);
+  });
+});
 
 describe('googleFlightsUrl (tfs deep link)', () => {
   it('encodes route/dates/cabin into the exact live-verified tfs payloads', async () => {

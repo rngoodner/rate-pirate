@@ -1,4 +1,24 @@
-import type { Cabin } from '@rate-pirate/shared';
+import type { Cabin, TripType } from '@rate-pirate/shared';
+
+/** One Explore search: all destinations from an origin for a cabin + trip type
+ *  over the next 6 months. Returns a ranked (cheapest-first) destination list. */
+export interface ExploreQuery {
+  origin: string;
+  cabin: Cabin;
+  tripType: TripType;
+  adults: number;
+}
+
+/** A destination surfaced by Explore, with the trip dates Google picked. Price
+ *  is NOT included (Explore doesn't expose it in its data) — the scanner scores
+ *  each candidate with a fixed-date fetch. */
+export interface ExploreDestination {
+  iata: string;
+  city: string;
+  country: string;
+  departDate: string;
+  returnDate: string;
+}
 
 export interface RoundTripQuote {
   origin: string;
@@ -25,6 +45,9 @@ export interface MonthQuery {
   nights?: number;
   /** Departure weekday 0=Sun…6=Sat for the representative trip (default 6). */
   departureDow?: number;
+  /** Exact dates to price (from an Explore result); overrides month/nights/dow. */
+  departDate?: string;
+  returnDate?: string;
   /** Also fetch Google's ~60-day price-history series (costs one in-page
    *  click); the scanner asks only while a route-month lacks its own baseline. */
   wantHistory?: boolean;
@@ -48,9 +71,12 @@ export interface MonthResult {
 export interface FlightPriceProvider {
   /** Recorded as the snapshot `source`. */
   readonly name: string;
-  /** Cheapest known round-trip quotes for a route + departure month.
-   *  May return several date pairs; quotes=[] when nothing is known. */
+  /** Cheapest known round-trip quotes for a route + dates. Prices the deal the
+   *  scanner is scoring (with exact Explore dates + history). */
   monthQuotes(q: MonthQuery): Promise<MonthResult>;
+  /** Discover the cheapest destinations from an origin for a cabin + trip type
+   *  over the next ~6 months (Google Flights Explore). Ranked cheapest-first. */
+  exploreSearch(q: ExploreQuery): Promise<ExploreDestination[]>;
 }
 
 /** One provider request, logged to the api_calls table for quota/debugging. */

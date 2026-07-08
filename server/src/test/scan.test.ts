@@ -26,6 +26,7 @@ describe('runScanBatch guards', () => {
     const gate = new Promise<void>((r) => (release = r));
     const slow: FlightPriceProvider = {
       name: 'mock',
+      exploreSearch: async () => [],
       monthQuotes: async (q) => {
         await gate;
         return new SyntheticProvider({ seed: 7 }).monthQuotes(q);
@@ -51,6 +52,7 @@ describe('runScanBatch guards', () => {
   it('flags a sizable all-zero-price batch as possible scraper breakage', async () => {
     const emptyProvider: FlightPriceProvider = {
       name: 'mock',
+      exploreSearch: async () => [],
       monthQuotes: async () => ({ quotes: [], insights: null }),
     };
     const deps = makeDeps(emptyProvider);
@@ -76,6 +78,7 @@ describe('runScanBatch guards', () => {
     // Returns real quotes until we flip `faresGone`, then empties every route-month.
     const provider: FlightPriceProvider = {
       name: 'mock',
+      exploreSearch: async () => [],
       monthQuotes: async (q: MonthQuery): Promise<MonthResult> =>
         faresGone ? { quotes: [], insights: null } : inner.monthQuotes(q),
     };
@@ -122,6 +125,7 @@ describe('runScanBatch guards', () => {
     let virtualNow = new Date('2026-07-05T06:00:00Z');
     const provider: FlightPriceProvider = {
       name: 'mock',
+      exploreSearch: async () => [],
       monthQuotes: async (q: MonthQuery) =>
         q.cabin === 'business' ? { quotes: [], insights: null } : inner.monthQuotes(q),
     };
