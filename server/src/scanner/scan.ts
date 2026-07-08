@@ -266,6 +266,8 @@ async function scanRouteMonth(
     destination: task.destination,
     cabin: task.cabin,
     month: task.month,
+    nights: settings.tripNights,
+    departureDow: settings.departureDow,
     wantHistory,
   });
   if (insights) {

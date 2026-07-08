@@ -85,12 +85,17 @@ export function parseHistoryLabel(
   return { date, priceCents: Number(m[2]!.replaceAll(',', '')) * 100 };
 }
 
-/** Representative round trip for a month: 2nd Saturday departure, 7 nights. */
-export function representativeDates(month: string): { departDate: string; returnDate: string } {
+/** Representative round trip for a month: the 2nd `departureDow` weekday
+ *  (0=Sun … 6=Sat) of the month, staying `nights` nights. */
+export function representativeDates(
+  month: string,
+  nights = 7,
+  departureDow = 6,
+): { departDate: string; returnDate: string } {
   const first = new Date(`${month}-01T00:00:00Z`);
-  const daysToSaturday = (6 - first.getUTCDay() + 7) % 7;
-  const depart = new Date(first.getTime() + (daysToSaturday + 7) * 86_400_000);
-  const ret = new Date(depart.getTime() + 7 * 86_400_000);
+  const daysToDow = (departureDow - first.getUTCDay() + 7) % 7;
+  const depart = new Date(first.getTime() + (daysToDow + 7) * 86_400_000);
+  const ret = new Date(depart.getTime() + nights * 86_400_000);
   return {
     departDate: depart.toISOString().slice(0, 10),
     returnDate: ret.toISOString().slice(0, 10),
@@ -149,7 +154,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
   }
 
   private async fetchQuotesInner(q: MonthQuery): Promise<MonthResult> {
-    const { departDate, returnDate } = representativeDates(q.month);
+    const { departDate, returnDate } = representativeDates(q.month, q.nights, q.departureDow);
     const route = `${q.origin}-${q.destination} ${q.month} ${q.cabin}`;
     // Deterministic tfs deep link (same builder as the booking links). The old
     // natural-language `q=` form silently failed to parse the "in premium

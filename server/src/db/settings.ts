@@ -23,6 +23,8 @@ export function getSettings(db: Db, config: Config): Settings {
     dealMinDiscount: floatOr(stored.get('deal_min_discount'), 0.05),
     alertCooldownDays: intOr(stored.get('alert_cooldown_days'), 7),
     scanHorizonMonths: intOr(stored.get('scan_horizon_months'), 6),
+    tripNights: intOr(stored.get('trip_nights'), 7),
+    departureDow: intOr(stored.get('departure_dow'), 6), // Saturday
   };
 }
 
@@ -49,6 +51,8 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
     deal_min_discount: patch.dealMinDiscount?.toString(),
     alert_cooldown_days: patch.alertCooldownDays?.toString(),
     scan_horizon_months: patch.scanHorizonMonths?.toString(),
+    trip_nights: patch.tripNights?.toString(),
+    departure_dow: patch.departureDow?.toString(),
   };
   const upsert = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',

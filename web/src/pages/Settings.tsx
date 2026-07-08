@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   CABINS,
   CABIN_LABELS,
+  WEEKDAYS,
   type AppEvent,
   type Cabin,
   type ScanStatus,
@@ -118,6 +119,49 @@ export default function Settings() {
             ›
           </span>
         </Link>
+
+        <Field label="Trip length & departure">
+          <div className="flex gap-3">
+            <label className="flex-1">
+              <span className="mb-1 block text-xs text-gray-500">Nights</span>
+              <input
+                key={settings.tripNights}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-lg font-bold outline-none focus:border-brand"
+                type="number"
+                inputMode="numeric"
+                aria-label="Trip length in nights"
+                defaultValue={settings.tripNights}
+                min={1}
+                max={30}
+                onBlur={(e) => {
+                  const n = Math.min(30, Math.max(1, Math.round(Number(e.target.value))));
+                  e.target.value = String(n);
+                  if (n !== settings.tripNights) save({ tripNights: n });
+                }}
+              />
+            </label>
+            <label className="flex-1">
+              <span className="mb-1 block text-xs text-gray-500">Departs</span>
+              <select
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-lg font-bold outline-none focus:border-brand"
+                aria-label="Departure day of week"
+                value={settings.departureDow}
+                onChange={(e) => save({ departureDow: Number(e.target.value) })}
+              >
+                {WEEKDAYS.map((day, i) => (
+                  <option key={day} value={i}>
+                    {day}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className={`mt-2 ${CARD_DESC}`}>
+            We price one representative trip per month: {settings.tripNights} night
+            {settings.tripNights === 1 ? '' : 's'}, departing the 2nd {WEEKDAYS[settings.departureDow]}{' '}
+            of the month. Changing this resets the price baseline while new history builds.
+          </p>
+        </Field>
 
         <Field label="Cabins to monitor">
           <div className="flex flex-wrap gap-2">

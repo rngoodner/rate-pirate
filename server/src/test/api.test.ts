@@ -134,6 +134,8 @@ describe('API routes', () => {
       { dealMinDiscount: 0.5 },
       { alertCooldownDays: 0 },
       { scanHorizonMonths: 12 },
+      { tripNights: 0 },
+      { departureDow: 7 },
     ]) {
       const bad = await app.request('/api/settings', {
         method: 'PUT',

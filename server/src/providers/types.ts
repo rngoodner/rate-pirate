@@ -21,6 +21,10 @@ export interface MonthQuery {
   cabin: Cabin;
   /** Departure month, 'YYYY-MM'. */
   month: string;
+  /** Nights for the representative round trip (default 7). */
+  nights?: number;
+  /** Departure weekday 0=Sun…6=Sat for the representative trip (default 6). */
+  departureDow?: number;
   /** Also fetch Google's ~60-day price-history series (costs one in-page
    *  click); the scanner asks only while a route-month lacks its own baseline. */
   wantHistory?: boolean;

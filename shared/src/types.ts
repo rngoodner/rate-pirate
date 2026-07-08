@@ -178,7 +178,21 @@ export interface Settings {
   alertCooldownDays: number;
   /** How many months ahead to scan; scales the scan universe. */
   scanHorizonMonths: number;
+  /** Trip length in nights for the representative round trip we price each month. */
+  tripNights: number;
+  /** Departure weekday (0=Sun … 6=Sat); we price the 2nd such weekday of the month. */
+  departureDow: number;
 }
+
+export const WEEKDAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
 
 export interface ScanStatus {
   provider: string;

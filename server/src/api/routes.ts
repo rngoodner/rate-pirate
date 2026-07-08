@@ -53,6 +53,8 @@ const settingsPatchSchema = z
     dealMinDiscount: z.number().min(0.01).max(0.3),
     alertCooldownDays: z.number().int().min(1).max(30),
     scanHorizonMonths: z.number().int().min(2).max(9),
+    tripNights: z.number().int().min(1).max(30),
+    departureDow: z.number().int().min(0).max(6),
   })
   .partial()
   .strict();

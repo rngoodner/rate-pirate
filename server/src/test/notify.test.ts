@@ -16,6 +16,8 @@ const settings: Settings = {
   dealMinDiscount: 0.05,
   alertCooldownDays: 7,
   scanHorizonMonths: 6,
+  tripNights: 7,
+  departureDow: 6,
 };
 
 function fakeSender() {

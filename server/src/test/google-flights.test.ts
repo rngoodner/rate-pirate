@@ -91,7 +91,7 @@ describe('parseResultLabel', () => {
 });
 
 describe('representativeDates', () => {
-  it('picks the 2nd Saturday and a 7-night stay', () => {
+  it('picks the 2nd Saturday and a 7-night stay by default', () => {
     // Aug 2026: the 1st is a Saturday → 2nd Saturday is the 8th
     expect(representativeDates('2026-08')).toEqual({
       departDate: '2026-08-08',
@@ -101,6 +101,19 @@ describe('representativeDates', () => {
     expect(representativeDates('2026-11')).toEqual({
       departDate: '2026-11-14',
       returnDate: '2026-11-21',
+    });
+  });
+
+  it('honors custom nights and departure weekday', () => {
+    // 2nd Wednesday (dow 3) of Aug 2026 (1st = Sat): Wednesdays 5,12 → 12th; 10 nights
+    expect(representativeDates('2026-08', 10, 3)).toEqual({
+      departDate: '2026-08-12',
+      returnDate: '2026-08-22',
+    });
+    // 2nd Friday (dow 5) of Nov 2026 (1st = Sun): Fridays 6,13 → 13th; 3 nights
+    expect(representativeDates('2026-11', 3, 5)).toEqual({
+      departDate: '2026-11-13',
+      returnDate: '2026-11-16',
     });
   });
 
