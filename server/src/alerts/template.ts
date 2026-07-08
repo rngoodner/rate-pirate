@@ -13,6 +13,7 @@ export interface AlertContent {
   country: string;
   cabin: Cabin;
   tripType: TripType;
+  adults: number;
   travelMonth: string; // 'YYYY-MM'
   priceCents: number;
   baselineCents: number;
@@ -31,7 +32,7 @@ export function alertSubject(a: AlertContent): string {
 }
 
 export function alertHtml(a: AlertContent): string {
-  const url = googleFlightsUrl(a.origin, a.destination, a.departDate, a.returnDate, a.cabin);
+  const url = googleFlightsUrl(a.origin, a.destination, a.departDate, a.returnDate, a.cabin, a.adults);
   return `<!doctype html>
 <body style="margin:0;padding:24px;background:#f2f3f5;font-family:-apple-system,'Segoe UI',Roboto,sans-serif">
   <div style="max-width:440px;margin:0 auto;background:#fff;border-radius:16px;padding:24px">

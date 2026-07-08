@@ -52,6 +52,14 @@ describe('googleFlightsUrl (tfs deep link)', () => {
       'https://www.google.com/travel/flights?tfs=GhoSCjIwMjYtMDktMTJqBRIDQUJRcgUSA1NFQRoaEgoyMDI2LTA5LTE5agUSA1NFQXIFEgNBQlFAAUgCmAEB&hl=en&curr=USD',
     );
   });
+
+  it('defaults to 1 adult (byte-identical) but encodes larger party sizes', async () => {
+    const { googleFlightsUrl } = await import('@rate-pirate/shared');
+    const one = googleFlightsUrl('ABQ', 'CUN', '2026-09-12', '2026-09-19', 'economy');
+    expect(googleFlightsUrl('ABQ', 'CUN', '2026-09-12', '2026-09-19', 'economy', 1)).toBe(one);
+    // A different party size must produce a different (adult-count) payload.
+    expect(googleFlightsUrl('ABQ', 'CUN', '2026-09-12', '2026-09-19', 'economy', 3)).not.toBe(one);
+  });
 });
 
 describe('parsePriceLevel', () => {

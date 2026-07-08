@@ -309,7 +309,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
     // natural-language `q=` form silently failed to parse the "in premium
     // economy" phrase — Google dropped us on the empty search form, so premium
     // economy collected ZERO data. tfs specifies the cabin exactly, no parsing.
-    const url = googleFlightsUrl(q.origin, q.destination, departDate, returnDate, q.cabin);
+    const url = googleFlightsUrl(q.origin, q.destination, departDate, returnDate, q.cabin, q.adults ?? 1);
 
     await this.throttle();
     const page = await (await this.getBrowser()).newPage();

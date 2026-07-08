@@ -153,8 +153,8 @@ export default function Settings() {
             onCommit={(n) => save({ adults: n })}
           />
           <p className={`mt-2 ${CARD_DESC}`}>
-            Prices are quoted for this many adults. Changing this resets the price baseline while new
-            history builds.
+            Every price, deal, and booking link is quoted for this many adults. Changing it re-prices
+            on the next scan.
           </p>
         </Field>
 

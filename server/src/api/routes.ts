@@ -100,6 +100,7 @@ export function apiRoutes(deps: AppDeps): Hono {
     if (!Number.isInteger(id)) return c.json({ error: 'invalid id' }, 400);
     const deal = getDealWithPlace(db, id);
     if (!deal) return c.json({ error: 'deal not found' }, 404);
+    const { adults } = getSettings(db, config);
 
     const options = recentDateOptions(
       db,
@@ -148,6 +149,7 @@ export function apiRoutes(deps: AppDeps): Hono {
           o.departDate,
           o.returnDate,
           deal.cabin,
+          adults,
         ),
       })),
     };
@@ -249,6 +251,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       country: 'Italy',
       cabin: settings.monitoredCabins[0] ?? 'economy',
       tripType: settings.tripTypes[0] ?? 'one_week',
+      adults: settings.adults,
       travelMonth: '2026-08',
       priceCents: 75800,
       baselineCents: 112300,

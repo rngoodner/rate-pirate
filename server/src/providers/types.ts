@@ -54,6 +54,8 @@ export interface MonthQuery {
   /** Exact dates to price (from an Explore result); overrides month/nights/dow. */
   departDate?: string;
   returnDate?: string;
+  /** Party size to price for (default 1). */
+  adults?: number;
   /** Also fetch Google's ~60-day price-history series (costs one in-page
    *  click); the scanner asks only while a route-month lacks its own baseline. */
   wantHistory?: boolean;

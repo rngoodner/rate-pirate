@@ -134,18 +134,20 @@ export function exploreUrl(
   return `https://www.google.com/travel/explore?tfs=${base64url(info)}&hl=en&curr=USD`;
 }
 
-/** Where-to-buy deep link — Rate Pirate never books flights itself. */
+/** Where-to-buy deep link — Rate Pirate never books flights itself. `adults`
+ *  defaults to 1 so existing 1-adult links/payloads are byte-identical. */
 export function googleFlightsUrl(
   origin: string,
   destination: string,
   departDate: string,
   returnDate: string,
   cabin: Cabin = 'economy',
+  adults = 1,
 ): string {
   const info = [
     ...lenDelim(3, leg(departDate, origin, destination)),
     ...lenDelim(3, leg(returnDate, destination, origin)),
-    ...enumField(8, 1), // one adult
+    ...enumField(8, adults),
     ...enumField(9, SEAT_NUM[cabin]),
     ...enumField(19, 1), // round trip
   ];

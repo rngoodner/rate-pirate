@@ -174,7 +174,7 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
           tripType,
         };
         try {
-          const r = await scanCandidate(deps, cand, d, now);
+          const r = await scanCandidate(deps, cand, d, now, settings.adults);
           scanned++;
           snapshots += r.snapshots;
           const tally = byCabin.get(cabin) ?? { scanned: 0, snapshots: 0 };
@@ -267,6 +267,7 @@ async function scanCandidate(
   cand: Candidate,
   dates: { departDate: string; returnDate: string },
   now: () => Date,
+  adults: number,
 ): Promise<{ snapshots: number; hadQuotes: boolean }> {
   const { db, provider } = deps;
   const capturedAt = sqliteStamp(now());
@@ -277,6 +278,7 @@ async function scanCandidate(
     month: dates.departDate.slice(0, 7),
     departDate: dates.departDate,
     returnDate: dates.returnDate,
+    adults,
     // Google publishes the price history for the exact trip; always fetch it —
     // it's the baseline and the sparkline in the Explore model.
     wantHistory: true,
@@ -362,7 +364,7 @@ async function verifyShownDeals(
       tripType: d.tripType,
     };
     try {
-      const r = await scanCandidate(deps, cand, { departDate: d.departDate, returnDate: d.returnDate }, now);
+      const r = await scanCandidate(deps, cand, { departDate: d.departDate, returnDate: d.returnDate }, now, settings.adults);
       verified++;
       snapshots += r.snapshots;
       if (getDeal(db, d.id)?.status === 'expired') dropped++;
