@@ -614,22 +614,6 @@ export function pruneEvents(db: Db, olderThanDays: number): number {
     .run(olderThanDays).changes;
 }
 
-/** Wipe captured price history for a source and retire its active deals. Used
- *  when a setting that rescales every price (party size) changes: old snapshots
- *  and Google medians are for the wrong party size, so keeping them would score
- *  a smaller-party fare against a larger-party baseline (a phantom deep discount
- *  + false alert). Everything rebuilds cleanly on the next scan. */
-export function resetPriceHistory(db: Db, source: string): { deals: number; snapshots: number } {
-  return db.transaction(() => {
-    const deals = db
-      .prepare(`UPDATE deals SET status = 'expired' WHERE source = ? AND status = 'active'`)
-      .run(source).changes;
-    const snapshots = db.prepare(`DELETE FROM price_snapshots WHERE source = ?`).run(source).changes;
-    db.prepare(`DELETE FROM price_insights WHERE source = ?`).run(source);
-    return { deals, snapshots };
-  })();
-}
-
 /** Remove all demo/mock artifacts. Called on boot when a real provider is
  *  active so a demo session never bleeds into live data. */
 export function purgeMockData(db: Db): number {

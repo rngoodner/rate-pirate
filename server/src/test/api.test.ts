@@ -127,10 +127,13 @@ describe('API routes', () => {
     expect(await (await app.request('/api/deals/999')).status).toBe(404);
   });
 
-  it('changing party size resets captured price history and clears the feed', async () => {
+  it('scales displayed prices by party size (no rescrape, no purge)', async () => {
     const { app, db } = makeApp();
-    seedDeal(db, 'NAP', 90); // priced at the old party size
-    expect(((await (await app.request('/api/deals')).json()) as Deal[]).length).toBe(1);
+    seedDeal(db, 'NAP', 90); // stored at 1 adult: best 65000, baseline 100000
+
+    let deals = (await (await app.request('/api/deals')).json()) as Deal[];
+    expect(deals).toHaveLength(1);
+    expect(deals[0]).toMatchObject({ bestPriceCents: 65000, baselinePriceCents: 100000 });
 
     const put = await app.request('/api/settings', {
       method: 'PUT',
@@ -138,9 +141,19 @@ describe('API routes', () => {
       body: JSON.stringify({ adults: 3 }),
     });
     expect(put.status).toBe(200);
-    // The prior-party-size deal is retired so it can't be scored against a
-    // mismatched baseline; the feed rebuilds on the next scan.
-    expect(((await (await app.request('/api/deals')).json()) as Deal[]).length).toBe(0);
+
+    // Same deal, still there — prices scaled ×3, score/discount unchanged.
+    deals = (await (await app.request('/api/deals')).json()) as Deal[];
+    expect(deals).toHaveLength(1);
+    expect(deals[0]).toMatchObject({
+      bestPriceCents: 195000,
+      baselinePriceCents: 300000,
+      score: 90,
+    });
+    // Deal detail scales its history + booking link too.
+    const detail = (await (await app.request(`/api/deals/${deals[0]!.id}`)).json()) as DealDetail;
+    expect(detail.bestPriceCents).toBe(195000);
+    expect(detail.googleFlightsUrl).toContain('google.com/travel/flights');
   });
 
   it('GET/PUT /api/settings round-trips and validates', async () => {

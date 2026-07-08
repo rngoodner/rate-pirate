@@ -23,7 +23,6 @@ import {
   lastApiCallAt,
   logEvent,
   recentEvents,
-  resetPriceHistory,
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
@@ -64,7 +63,10 @@ const settingsPatchSchema = z
   .partial()
   .strict();
 
-function toWireDeal(d: DealWithPlace): Deal {
+// Deals are stored at 1 adult (that's where Google's price history lives).
+// Party size is a pure display multiplier — fares scale linearly, so the score
+// and discount are unchanged; only the shown totals scale.
+function toWireDeal(d: DealWithPlace, adults: number): Deal {
   return {
     id: d.id,
     origin: d.origin,
@@ -74,8 +76,8 @@ function toWireDeal(d: DealWithPlace): Deal {
     cabin: d.cabin,
     tripType: d.tripType,
     travelMonth: d.travelMonth,
-    bestPriceCents: d.bestPriceCents,
-    baselinePriceCents: d.baselinePriceCents,
+    bestPriceCents: d.bestPriceCents * adults,
+    baselinePriceCents: d.baselinePriceCents * adults,
     discountPct: d.discountPct,
     score: d.score,
     departDate: d.departDate,
@@ -93,13 +95,10 @@ export function apiRoutes(deps: AppDeps): Hono {
   api.get('/health', (c) => c.json({ ok: true }));
 
   api.get('/deals', (c) => {
-    const { monitoredCabins, tripTypes } = getSettings(db, config);
-    const deals: Deal[] = activeDealsWithPlace(
-      db,
-      deps.provider.name,
-      monitoredCabins,
-      tripTypes,
-    ).map(toWireDeal);
+    const { monitoredCabins, tripTypes, adults } = getSettings(db, config);
+    const deals: Deal[] = activeDealsWithPlace(db, deps.provider.name, monitoredCabins, tripTypes).map(
+      (d) => toWireDeal(d, adults),
+    );
     return c.json(deals);
   });
 
@@ -122,7 +121,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       deal.tripType,
     );
     const detail: DealDetail = {
-      ...toWireDeal(deal),
+      ...toWireDeal(deal, adults),
       nights: Math.round((Date.parse(deal.returnDate) - Date.parse(deal.departDate)) / 86_400_000),
       stops: flight?.stops ?? null,
       carrier: flight?.carrier ?? null,
@@ -136,7 +135,8 @@ export function apiRoutes(deps: AppDeps): Hono {
         deal.cabin,
         adults,
       ),
-      priceHistory: insights?.series ?? [],
+      // Stored 1-adult history scaled to the party size, like the deal's prices.
+      priceHistory: (insights?.series ?? []).map((p) => ({ ...p, priceCents: p.priceCents * adults })),
       googleLevel: insights?.level ?? null,
     };
     return c.json(detail);
@@ -157,17 +157,9 @@ export function apiRoutes(deps: AppDeps): Hono {
     const before = getSettings(db, config);
     updateSettings(db, parsed.data);
     const after = getSettings(db, config);
-    // Party size rescales every price, so old snapshots/medians are invalid for
-    // the new one — wipe them (deals rebuild at the new scale on the next scan)
-    // rather than score a small-party fare against a large-party baseline.
-    if (after.adults !== before.adults) {
-      const { deals, snapshots } = resetPriceHistory(db, deps.provider.name);
-      logEvent(db, {
-        level: 'info',
-        scope: 'system',
-        message: `party size changed to ${after.adults} — reset price history (expired ${deals} deal${deals === 1 ? '' : 's'}, cleared ${snapshots} snapshots); re-prices on the next scan`,
-      });
-    }
+    // Party size (adults) is NOT here: prices are stored at 1 adult and the API
+    // scales them by party size at display/booking time, so a change takes
+    // effect instantly with no rescan or purge.
     // A feed-floor change applies instantly: re-run detection over stored
     // snapshots (no scans, no alerts) instead of waiting a full scan cycle.
     if (after.dealMinDiscount !== before.dealMinDiscount) {
@@ -197,22 +189,17 @@ export function apiRoutes(deps: AppDeps): Hono {
         message: `feed floor changed to ${Math.round(after.dealMinDiscount * 100)}% — re-evaluated ${combos} combos, ${active} active deal${active === 1 ? '' : 's'}`,
       });
     }
-    // Any change to the scan universe (home airport, party size, cabins, trip
-    // types) invalidates or empties the current feed, and the data can't just be
-    // re-derived from what's stored — it needs fresh prices. Kick off a scan in
+    // A change to the scan universe (home airport, cabins, trip types) needs
+    // fresh prices that can't be derived from stored data. Kick off a scan in
     // the background so the feed refills in seconds instead of going dark until
-    // the next cron batch. Fire-and-forget: the PUT returns immediately and the
-    // client auto-refresh picks up the new deals as they land. (Skipped when
-    // scanning is off, or coalesced by the batch mutex if one is already running.)
+    // the next cron batch. (Party size is excluded — it's a display multiplier.)
+    // Fire-and-forget; skipped when scanning is off, queued behind an in-flight
+    // batch so it can't be dropped by the mutex.
     const universeChanged =
       after.homeAirport !== before.homeAirport ||
-      after.adults !== before.adults ||
       after.monitoredCabins.join(',') !== before.monitoredCabins.join(',') ||
       after.tripTypes.join(',') !== before.tripTypes.join(',');
     if (universeChanged && after.scanEnabled) {
-      // Queued (not dropped) if a batch is already running under the old
-      // settings — otherwise a scan mid-flight when e.g. party size changes
-      // would leave the feed showing stale (wrong-party-size) prices.
       requestUniverseRescan(deps);
     }
     return c.json(after);

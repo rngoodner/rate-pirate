@@ -194,11 +194,14 @@ async function runBatch(
       if (budgetLeft() <= 0 || scanned >= scoreLimit) break outer;
       let destinations: ExploreDestination[];
       try {
+        // Always scan at 1 passenger: prices scale linearly with party size and
+        // Google's price-history graph (our baseline) only exists for 1 adult.
+        // Party size is applied at display/booking time, not here.
         destinations = await provider.exploreSearch({
           origin: settings.homeAirport,
           cabin,
           tripType,
-          adults: settings.adults,
+          adults: 1,
         });
         recordMockCall(db, provider.name, `explore ${settings.homeAirport} ${cabin} ${tripType}`, 'exploreSearch', asOfNow(now));
       } catch (err) {
@@ -242,7 +245,7 @@ async function runBatch(
           tripType,
         };
         try {
-          const r = await scanCandidate(deps, cand, d, now, settings.adults);
+          const r = await scanCandidate(deps, cand, d, now);
           // Mark re-priced only on success: a throwing scan leaves this deal out
           // of scoredKeys so the verify pass retries it (rather than freezing it
           // at a stale price because its combo happened to run).
@@ -340,10 +343,13 @@ async function scanCandidate(
   cand: Candidate,
   dates: { departDate: string; returnDate: string },
   now: () => Date,
-  adults: number,
 ): Promise<{ snapshots: number; hadQuotes: boolean }> {
   const { db, provider } = deps;
   const capturedAt = sqliteStamp(now());
+  // Always price at 1 adult (adults defaults to 1): Google only shows the
+  // price-history graph — our baseline — for single-passenger searches, and
+  // fares scale linearly, so party size is a pure display multiplier applied
+  // by the API, not something we scrape.
   const { quotes, insights } = await provider.monthQuotes({
     origin: cand.origin,
     destination: cand.destination,
@@ -351,7 +357,6 @@ async function scanCandidate(
     month: dates.departDate.slice(0, 7),
     departDate: dates.departDate,
     returnDate: dates.returnDate,
-    adults,
     // Google publishes the price history for the exact trip; always fetch it —
     // it's the baseline and the sparkline in the Explore model.
     wantHistory: true,
@@ -439,7 +444,7 @@ async function verifyShownDeals(
       tripType: d.tripType,
     };
     try {
-      const r = await scanCandidate(deps, cand, { departDate: d.departDate, returnDate: d.returnDate }, now, settings.adults);
+      const r = await scanCandidate(deps, cand, { departDate: d.departDate, returnDate: d.returnDate }, now);
       verified++;
       snapshots += r.snapshots;
       if (getDeal(db, d.id)?.status === 'expired') dropped++;

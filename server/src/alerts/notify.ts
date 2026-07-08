@@ -43,6 +43,8 @@ export async function maybeAlert(
     if (inCooldown && !deepened) return { sent: false, reason: 'cooldown' };
   }
 
+  // Prices are stored at 1 adult; scale to the party size for display + the
+  // booking link (fares scale linearly). Score/discount are scale-invariant.
   const content = {
     origin: deal.origin,
     destination: deal.destination,
@@ -52,8 +54,8 @@ export async function maybeAlert(
     tripType: deal.tripType,
     adults: settings.adults,
     travelMonth: deal.travelMonth,
-    priceCents: deal.bestPriceCents,
-    baselineCents: deal.baselinePriceCents,
+    priceCents: deal.bestPriceCents * settings.adults,
+    baselineCents: deal.baselinePriceCents * settings.adults,
     discountPct: deal.discountPct,
     score: deal.score,
     departDate: deal.departDate,
@@ -66,7 +68,7 @@ export async function maybeAlert(
       month: 'short',
       year: 'numeric',
       timeZone: 'UTC',
-    })} ${CABIN_LABELS[deal.cabin]} $${Math.round(deal.bestPriceCents / 100)}`;
+    })} ${CABIN_LABELS[deal.cabin]} $${Math.round(content.priceCents / 100)}`;
   try {
     await sender.send({
       to: recipients,
