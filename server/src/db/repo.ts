@@ -162,15 +162,13 @@ export interface DealRow {
   firstSeenAt: string;
   lastSeenAt: string;
   status: 'active' | 'expired';
-  baselineSource: 'observed' | 'google';
 }
 
 const dealCols = `id, source, origin, destination, city, country, cabin,
   trip_type AS tripType, travel_month AS travelMonth,
   best_price_cents AS bestPriceCents, baseline_price_cents AS baselinePriceCents,
   discount_pct AS discountPct, score, depart_date AS departDate, return_date AS returnDate,
-  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status,
-  baseline_source AS baselineSource`;
+  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status`;
 
 export interface DealInput {
   source: string;
@@ -188,16 +186,14 @@ export interface DealInput {
   departDate: string;
   returnDate: string;
   seenAt: string;
-  /** Defaults to 'google' (Explore-era baselines come from Google's history). */
-  baselineSource?: 'observed' | 'google';
 }
 
 export function upsertDeal(db: Db, d: DealInput): DealRow {
   db.prepare(
     `INSERT INTO deals (source, origin, destination, city, country, cabin, trip_type, travel_month,
        best_price_cents, baseline_price_cents, discount_pct, score, depart_date, return_date,
-       first_seen_at, last_seen_at, status, baseline_source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+       first_seen_at, last_seen_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
      ON CONFLICT(source, origin, destination, cabin, trip_type) DO UPDATE SET
        city = excluded.city,
        country = excluded.country,
@@ -213,8 +209,7 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
        -- is a new episode: restart its first-seen clock.
        first_seen_at = CASE WHEN deals.status = 'expired'
                             THEN excluded.first_seen_at ELSE deals.first_seen_at END,
-       status = 'active',
-       baseline_source = excluded.baseline_source`,
+       status = 'active'`,
   ).run(
     d.source,
     d.origin,
@@ -232,7 +227,6 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
     d.returnDate,
     d.seenAt,
     d.seenAt,
-    d.baselineSource ?? 'google',
   );
   return getDealByCombo(db, d.source, d.origin, d.destination, d.cabin, d.tripType)!;
 }
@@ -401,32 +395,6 @@ export function recentDateOptions(
     ...r,
     layovers: layoversJson ? (JSON.parse(layoversJson) as Layover[]) : [],
   }));
-}
-
-/** Daily-minimum price series for one combo — the deal page's sparkline (when
- *  our own observed history has enough shape; Google's series is preferred
- *  early). Same daily-minima basis as the baseline computation. */
-export function dailyMinimaSeries(
-  db: Db,
-  source: string,
-  origin: string,
-  destination: string,
-  cabin: Cabin,
-  tripType: TripType,
-  days: number,
-): { date: string; priceCents: number }[] {
-  return db
-    .prepare(
-      `SELECT date(captured_at) AS date, MIN(price_cents) AS priceCents
-       FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?
-         AND captured_at >= datetime('now', '-' || ? || ' days')
-       GROUP BY date(captured_at) ORDER BY date`,
-    )
-    .all(source, origin, destination, cabin, tripType, days) as {
-    date: string;
-    priceCents: number;
-  }[];
 }
 
 /** Distinct MONITORED (cabin, trip_type) search combos that have produced Google

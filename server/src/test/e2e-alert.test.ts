@@ -102,7 +102,6 @@ describe('alert pipeline simulation', () => {
     const deal = getDealByCombo(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week');
     expect(deal).not.toBeNull();
     expect(deal!.status).toBe('active');
-    expect(deal!.baselineSource).toBe('google'); // no own history yet
     expect(deal!.discountPct).toBeGreaterThan(0.3);
     const napAlert = sent.find((m) => m.subject.includes('Naples'));
     expect(napAlert).toBeDefined();

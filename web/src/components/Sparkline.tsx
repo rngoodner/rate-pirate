@@ -1,17 +1,14 @@
 import type { PricePoint } from '@rate-pirate/shared';
 import { usd } from '../api/client';
 
-/** Price-history sparkline: daily-minimum prices with the baseline dashed in.
- *  Answers "is this actually low?" at a glance. */
+/** Price-history sparkline: Google's ~60-day daily-low prices for this trip,
+ *  with the typical price dashed in. Answers "is this actually low?" at a glance. */
 export default function Sparkline({
   points,
   baselineCents,
-  source = 'observed',
 }: {
   points: PricePoint[];
   baselineCents: number;
-  /** 'google' = Google's price-history graph, shown while our own builds. */
-  source?: 'observed' | 'google';
 }) {
   if (points.length < 2) return null;
 
@@ -55,10 +52,8 @@ export default function Sparkline({
         <circle cx={x(points.length - 1)} cy={y(last.priceCents)} r="3.5" fill="#35b6ea" />
       </svg>
       <p className="mt-1 text-xs text-gray-400">
-        {source === 'google'
-          ? "Google's price history for this trip (shown while our own builds)."
-          : 'Daily lowest observed fare.'}{' '}
-        Dashed line = typical price ({usd(baselineCents)}).
+        Google's price history for this trip. Dashed line = typical price (
+        {usd(baselineCents)}).
       </p>
     </div>
   );

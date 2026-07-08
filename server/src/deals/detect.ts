@@ -79,7 +79,6 @@ export function processCandidate(
       departDate: current.departDate,
       returnDate: current.returnDate,
       seenAt: asOf,
-      baselineSource: 'google',
     });
   }
 

@@ -176,9 +176,6 @@ export interface Deal {
   firstSeenAt: string;
   lastSeenAt: string;
   status: 'active' | 'expired';
-  /** 'observed' = our own scan history; 'google' = bootstrapped from Google's
-   *  price-history graph while our history is still building. */
-  baselineSource: 'observed' | 'google';
 }
 
 /** A connection on the outbound leg: where you stop and for how long. */
@@ -216,10 +213,8 @@ export interface PricePoint {
 
 export interface DealDetail extends Deal {
   dateOptions: DealDateOption[];
-  /** Daily-minimum price history for this route-month (last ~60 days). */
+  /** Google's ~60-day price-history series for this trip (oldest first). */
   priceHistory: PricePoint[];
-  /** Whose history the sparkline charts: ours, or Google's while ours builds. */
-  priceHistorySource: 'observed' | 'google';
   /** Google's own current-price verdict for this trip, when captured. */
   googleLevel: 'low' | 'typical' | 'high' | null;
 }
@@ -273,7 +268,8 @@ export interface ScanStatus {
   lastScanAt: string | null;
   callsToday: number;
   dailyCallBudget: number;
-  /** Fraction of active route-months that have enough history for a baseline. */
+  /** Fraction of the monitored searches (trip type × cabin) that have returned
+   *  Google price data. */
   baselineCoverage: number;
   activeDeals: number;
   /** Error events logged today (local day). */

@@ -57,11 +57,7 @@ export default function DealDetail() {
       </header>
 
       <div className="flex flex-col gap-3 p-4">
-        <Sparkline
-          points={deal.priceHistory}
-          baselineCents={deal.baselinePriceCents}
-          source={deal.priceHistorySource}
-        />
+        <Sparkline points={deal.priceHistory} baselineCents={deal.baselinePriceCents} />
 
         {deal.googleLevel && <GoogleVerdict level={deal.googleLevel} />}
 
@@ -91,7 +87,6 @@ export default function DealDetail() {
               layovers={best.layovers}
               priceCents={best.priceCents}
               baselineCents={best.baselinePriceCents ?? deal.baselinePriceCents}
-              estimated={deal.baselineSource === 'google'}
             />
             <p className="mt-2 text-sm font-semibold text-brand">Book on Google Flights →</p>
           </a>
@@ -119,7 +114,6 @@ export default function DealDetail() {
               layovers={o.layovers}
               priceCents={o.priceCents}
               baselineCents={o.baselinePriceCents ?? deal.baselinePriceCents}
-              estimated={deal.baselineSource === 'google'}
             />
           </a>
         ))}
@@ -129,10 +123,8 @@ export default function DealDetail() {
         </p>
 
         <p className="mt-1 text-center text-xs text-gray-400">
-          Prices are indicative, from recently observed fares. Tapping an option opens Google
-          Flights to book.
-          {deal.baselineSource === 'google' &&
-            ' The typical price is estimated from Google’s price history until our own scans mature.'}
+          Typical price is the median of Google’s price history for this trip. Tapping an option
+          opens Google Flights to book.
         </p>
       </div>
     </div>
@@ -204,7 +196,6 @@ function OptionRow(props: {
   layovers: Layover[];
   priceCents: number;
   baselineCents: number;
-  estimated?: boolean;
 }) {
   const detail = flightDetail(props);
   return (
@@ -217,12 +208,7 @@ function OptionRow(props: {
         {detail && <span className="block text-xs text-gray-400">{detail}</span>}
       </span>
       <span className="flex items-center gap-1">
-        <PriceTag
-          priceCents={props.priceCents}
-          baselineCents={props.baselineCents}
-          estimated={props.estimated}
-          size="md"
-        />
+        <PriceTag priceCents={props.priceCents} baselineCents={props.baselineCents} size="md" />
         <span className="text-gray-400">›</span>
       </span>
     </div>

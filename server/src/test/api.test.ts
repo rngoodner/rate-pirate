@@ -38,7 +38,6 @@ function seedDeal(db: ReturnType<typeof openDb>, destination: string, score: num
     departDate: '2099-08-18',
     returnDate: '2099-08-26',
     seenAt: '2026-06-20 08:00:00',
-    baselineSource: 'observed',
   });
 }
 
@@ -83,12 +82,20 @@ describe('API routes', () => {
         source: 'mock',
       });
     }
-    // Google's verdict rides along; a level with no series must NOT flip the
-    // sparkline to google (that still needs a captured history series).
+    // Google's price history for the trip: its series backs the sparkline and
+    // its level is the verdict shown on the page.
     upsertPriceInsights(
       db,
       { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy', tripType: 'one_week' },
-      { level: 'low', history: null, capturedAt: '2026-06-20 08:00:00' },
+      {
+        level: 'low',
+        history: [
+          { date: '2026-06-18', priceCents: 90000 },
+          { date: '2026-06-19', priceCents: 88000 },
+          { date: '2026-06-20', priceCents: 65000 },
+        ],
+        capturedAt: '2026-06-20 08:00:00',
+      },
     );
 
     const res = await app.request(`/api/deals/${deal.id}`);
@@ -114,11 +121,12 @@ describe('API routes', () => {
     expect(detail.dateOptions[0]!.googleFlightsUrl).toContain('google.com/travel/flights');
     // Google's own verdict surfaces on the page.
     expect(detail.googleLevel).toBe('low');
-    // Daily-minimum history rides along for the sparkline.
-    expect(detail.priceHistory.length).toBeGreaterThan(0);
-    expect(detail.priceHistory[0]).toMatchObject({ priceCents: expect.any(Number) });
-    expect(detail.priceHistorySource).toBe('observed'); // level-only insight, no series
-    expect(detail.baselineSource).toBe('observed');
+    // The sparkline is Google's price-history series for the trip.
+    expect(detail.priceHistory).toEqual([
+      { date: '2026-06-18', priceCents: 90000 },
+      { date: '2026-06-19', priceCents: 88000 },
+      { date: '2026-06-20', priceCents: 65000 },
+    ]);
     expect(await (await app.request('/api/deals/999')).status).toBe(404);
   });
 

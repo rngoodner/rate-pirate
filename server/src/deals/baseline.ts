@@ -6,12 +6,10 @@ export interface Baseline {
 }
 
 /** Baseline for a (destination, cabin, trip_type) combo: the median of Google's
- *  own ~60-day price-history series, captured from the deal's results page.
- *
- *  In the Explore model we no longer accumulate our own per-route history to
- *  build a baseline — Google already publishes a daily-lowest-price series for
- *  the exact trip, so a deal can be scored from day one. Returns null until a
- *  series (or at least a median) has been captured. */
+ *  ~60-day price-history series for the exact trip, captured from the results
+ *  page. Google publishes a daily-lowest-price series, so a deal can be scored
+ *  from day one — no locally-accumulated history needed. Returns null until a
+ *  median has been captured. */
 export function computeBaseline(insights?: PriceInsightsRow | null): Baseline | null {
   // A non-positive median is never a real fare — reject it so scoreDeal can't
   // divide by zero (discountPct = (baseline-current)/baseline).
@@ -19,17 +17,6 @@ export function computeBaseline(insights?: PriceInsightsRow | null): Baseline | 
     return { baselineCents: insights.medianCents, kind: 'google' };
   }
   return null;
-}
-
-/** Cheapest observed price per capture day — the sparkline's daily-minima basis. */
-export function dailyMinima(series: { capturedAt: string; priceCents: number }[]): number[] {
-  const byDay = new Map<string, number>();
-  for (const s of series) {
-    const day = s.capturedAt.slice(0, 10);
-    const min = byDay.get(day);
-    if (min === undefined || s.priceCents < min) byDay.set(day, s.priceCents);
-  }
-  return [...byDay.values()];
 }
 
 export function median(values: number[]): number {

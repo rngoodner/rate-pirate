@@ -16,7 +16,6 @@ import {
   apiCallsToday,
   clearEvents,
   combosWithBaseline,
-  dailyMinimaSeries,
   errorsToday,
   getDealWithPlace,
   getPriceInsights,
@@ -78,7 +77,6 @@ function toWireDeal(d: DealWithPlace): Deal {
     firstSeenAt: d.firstSeenAt,
     lastSeenAt: d.lastSeenAt,
     status: d.status,
-    baselineSource: d.baselineSource,
   };
 }
 
@@ -116,19 +114,8 @@ export function apiRoutes(deps: AppDeps): Hono {
       7,
       20,
     );
-    // Chart our own history once it has some shape; before that, Google's
-    // series (captured at scan time) is the better picture.
-    const observed = dailyMinimaSeries(
-      db,
-      deal.source,
-      deal.origin,
-      deal.destination,
-      deal.cabin,
-      deal.tripType,
-      60,
-    );
-    // Fetch insights unconditionally: the series backs the early sparkline, and
-    // the level is Google's own verdict we surface on the page.
+    // The sparkline and the price verdict both come from Google's own
+    // price-history for the exact trip, captured at scan time.
     const insights = getPriceInsights(
       db,
       deal.source,
@@ -137,11 +124,9 @@ export function apiRoutes(deps: AppDeps): Hono {
       deal.cabin,
       deal.tripType,
     );
-    const useGoogle = observed.length < 5 && (insights?.series.length ?? 0) > 0;
     const detail: DealDetail = {
       ...toWireDeal(deal),
-      priceHistory: useGoogle ? insights!.series : observed,
-      priceHistorySource: useGoogle ? 'google' : 'observed',
+      priceHistory: insights?.series ?? [],
       googleLevel: insights?.level ?? null,
       dateOptions: options.map((o) => ({
         ...o,
