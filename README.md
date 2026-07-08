@@ -1,15 +1,16 @@
 # Rate Pirate 🏴‍☠️
 
-Personal flight-deal monitor: scans round-trip prices from ABQ to ~90 destinations
-worldwide by scraping Google Flights, and emails an alert when a price drops far
-below that route's recent norm. Deals link out to Google Flights for booking — the
-app never books anything. Design details live in [DESIGN.md](DESIGN.md); developer
-notes in [CLAUDE.md](CLAUDE.md).
+Personal flight-deal monitor: searches round-trip prices from ABQ to **Anywhere**
+via Google Flights "Explore" (flexible dates, next ~6 months), prices the cheapest
+destinations it surfaces, and emails an alert when a price drops far below that
+trip's recent norm. Deals link out to Google Flights for booking — the app never
+books anything. Developer notes in [CLAUDE.md](CLAUDE.md). (Note: `DESIGN.md`
+predates the Explore rewrite — treat its scanning/schema sections as historical.)
 
 - **App (production):** http://your-server.local:8081 — add to your phone's home screen
 - **Runs on:** `your-server.local` (Debian 12), app dir `/opt/rate-pirate`
 - **Alerts:** emailed when a deal scores ≥ threshold (default 85) **and** beats the
-  minimum discount (default 20% below the route's baseline); cooldown per route-month
+  minimum discount (default 20% below the trip's typical price); cooldown per deal
   (default 7 days) unless the price drops another 10%. Thresholds are editable in
   Settings (→ Advanced). Sent via SMTP (Proton Bridge) or Resend — see "Email" below.
 
@@ -38,11 +39,10 @@ curl -s localhost:3789/api/status          # app status: last scan, calls used,
 ```
 
 The same status JSON is shown in the app's **Settings** tab. `baselineCoverage`
-tracks OUR OWN price history and climbs toward 1.0 over the first ~10 days —
-but deals and alerts can appear from day one: while a route lacks its own
-baseline, the scanner bootstraps from Google's price-history graph (captured
-from the same page loads) and marks such deals "est." in the UI. Own history
-takes over automatically as it matures.
+is the fraction of the monitored searches (trip type × cabin) that have returned
+Google price data — it reaches ~1.0 within the first day or two of scanning.
+Baselines come from Google's own ~60-day price history for each trip, so deals
+and alerts can appear from the very first scan.
 
 **Settings → Activity log** shows the last 50 events (batch summaries, alerts
 sent, and any scan/alert errors with expandable stack traces) — check there
@@ -80,15 +80,14 @@ curl -s -X PUT -H 'content-type: application/json' \
   -d '{"dailyCallBudget":300}' localhost:3789/api/settings
 ```
 
-Sizing: the scan universe is `destinations × 6 months × monitored cabins` calls
-(144 × 6 × 2 cabins ≈ 1,730). A route-month only gets a **month baseline** with
-captures on 10 distinct days inside a 60-day window, so each unit needs a scan
-at least every ~6 days: `budget ≥ universe / 5` is a good floor (≈ 340 for two
-cabins, ≈ 170 for one). Below that, routes fall back to the coarser all-months
-route baseline and seasonality is blurred. Each call is a throttled headless-
-Chrome page load (4–7 s apart); ~300/day ≈ 8 minutes of scraping per batch.
-Stay well under ~500/day to keep Google friendly — if scans start failing
-consistently, lower it.
+Sizing: each batch makes one **Explore** page load per monitored `trip type ×
+cabin` (a handful — e.g. 2 trip types × 2 cabins = 4), then one fixed-date page
+load per destination it prices, cheapest-first, capped at `budget ÷ 4` per batch.
+Explore returns ~40–120 destinations, so a full pass spans several batches — the
+feed fills in over a day and the cheapest deals surface first. A budget of
+200–500 comfortably covers a few trip-type/cabin combos. Each call is a throttled
+headless-Chrome page load (~2–3.5 s apart). Stay under ~500/day to keep Google
+friendly — if scans start failing consistently, lower it.
 
 ### Send a test email
 
@@ -170,21 +169,22 @@ Two layers:
 
 - **`/opt/rate-pirate/.env`** — secrets and machine config (SMTP /
   Resend, provider choice, port, DB path). Edit, then `sudo systemctl restart rate-pirate`.
-- **Settings UI / API** — home airport, alert email (comma-separated for multiple),
-  alert threshold, cabins, scan on/off, and which destinations to scan
-  (Settings → Destinations — deactivating expires its deals but keeps history);
-  under **Advanced**: daily call budget (see "Adjust the daily call budget"
-  above), alert minimum discount (default 20%), re-alert cooldown (default
-  7 days), and scan horizon (default 6 months). All in the DB; no restart needed.
+- **Settings UI / API** — home airport, trip types (weekend / 1 week / 2 weeks),
+  cabins, number of adults, alert email (comma-separated for multiple), alert
+  threshold, and scan on/off; under **Advanced**: daily call budget (see "Adjust
+  the daily call budget" above), alert minimum discount (default 20%), deal feed
+  floor (default 5%), and re-alert cooldown (default 7 days). All in the DB; no
+  restart needed. Changing the home airport, trip types, cabins, or party size
+  kicks off a scan so the feed refreshes right away.
 
 ### Demo mode (mock data)
 
 To show the app with a fully populated feed (e.g. before enough live history has
 accumulated), set `PROVIDER=mock` in `.env` and restart the service. On boot the
-app auto-seeds 14 days of synthetic price history and deals **for all four cabins**
-— the UI is populated immediately, and toggling cabins in Settings shows demo data
-for any cabin instantly. Live data keeps its own lane: it is neither shown nor
-touched while in demo mode.
+app auto-seeds 14 days of synthetic price history and deals **across all cabins and
+trip types** — the UI is populated immediately, and toggling cabins or trip types
+in Settings shows demo data instantly. Live data keeps its own lane: it is neither
+shown nor touched while in demo mode.
 
 To go (back) live, set `PROVIDER=google-flights` and restart — all mock data is
 purged automatically on boot and only real history is shown. Mock and live data
@@ -200,7 +200,7 @@ SQLite at `/opt/rate-pirate/data/rate-pirate.db`.
 sqlite3 /opt/rate-pirate/data/rate-pirate.db \
   "SELECT COUNT(*) FROM price_snapshots;"                      # data volume
 sqlite3 /opt/rate-pirate/data/rate-pirate.db \
-  "SELECT destination, travel_month, score, best_price_cents/100
+  "SELECT destination, trip_type, cabin, score, best_price_cents/100
    FROM deals WHERE status='active' ORDER BY score DESC;"      # current deals
 ```
 
@@ -220,8 +220,9 @@ its backups together):
 2. **Off-host** — pull the rotation to another machine with
    `deploy/pull-backups.sh` (run from the Mac; cron it or run it occasionally).
 
-Losing the DB is not fatal — deals regenerate — but baselines need ~2 weeks of
-scanning to become trustworthy again, so alert quality degrades until then.
+Losing the DB is not fatal — deals regenerate within a day or two of scanning,
+since baselines come from Google's own price history (there's nothing local to
+rebuild).
 
 Old data prunes itself: price snapshots after 180 days, API-call logs after 60,
 activity-log events after 30.
@@ -252,7 +253,7 @@ sudo nginx -t && sudo systemctl reload nginx   # after editing the site config
 |---|---|
 | App unreachable at :8081 | `systemctl status rate-pirate`, then `curl localhost:3789/api/health` on the server (isolates app vs nginx), then `sudo nginx -t` |
 | Scans failing | **Settings → Activity log** in the app shows each failure with its error (also `journalctl -u rate-pirate --since today \| grep 'scan failed'`). Occasional `TransientPageError` is normal (Google hiccup — retried next batch). Many consecutive failures usually mean Google changed its page or is challenging the server's IP; try `chromium --version` and reduce the daily call budget (see "Adjust the daily call budget"). |
-| No deals after 2+ weeks | Settings → Status: is `baselineCoverage` growing? Is `callsToday` > 0? If scanning is on and coverage is high, there simply may be no qualifying deals — lower the alert threshold to see more. |
+| No deals showing | Settings → Status: is `callsToday` > 0 and `baselineCoverage` climbing? If scanning is on and searches are returning data, there may simply be no qualifying deals right now — lower the alert threshold, or the deal feed floor (Settings → Advanced), to see more. |
 | No alert emails | Send a test email (above) and read the returned error. On Proton Bridge, check Bridge is running (`ss -tlnp \| grep 1025`). Remember alerts also require the minimum discount (default 20%, Settings → Advanced), not just a high score. |
 | Service won't start | `journalctl -u rate-pirate -n 50`. Common causes: missing `/opt/rate-pirate/.env`, or `node`/`chromium` missing after an OS reinstall (`apt install nodejs chromium`). |
 | Chromium won't launch (sandbox errors in the log) | Set `CHROME_NO_SANDBOX=true` in `.env` and restart — needed only on containers/unusual kernels; sandboxed is the safer default. |
