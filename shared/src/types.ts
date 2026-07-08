@@ -186,33 +186,28 @@ export interface Layover {
   minutes: number | null;
 }
 
-export interface DealDateOption {
-  departDate: string;
-  returnDate: string;
-  nights: number;
-  priceCents: number;
-  baselinePriceCents: number | null;
-  /** Transfers on the cheapest itinerary for this date pair; 0 = nonstop. */
-  stops: number | null;
-  /** Marketing carrier for the cheapest itinerary. */
-  carrier: string | null;
-  /** Total outbound travel time in minutes; null when not captured. */
-  durationMinutes: number | null;
-  /** Outbound layovers in order; empty for a nonstop. */
-  layovers: Layover[];
-  capturedAt: string;
-  googleFlightsUrl: string;
-}
-
-/** One point of the deal page's price-history sparkline (daily minimum). */
+/** One point of the deal page's price-history sparkline. */
 export interface PricePoint {
   /** 'YYYY-MM-DD' capture day. */
   date: string;
   priceCents: number;
 }
 
+/** The detailed view of a single fare: the deal plus the flight specifics of the
+ *  exact itinerary it describes. */
 export interface DealDetail extends Deal {
-  dateOptions: DealDateOption[];
+  /** Nights of the round trip (from depart→return). */
+  nights: number;
+  /** Transfers on the outbound leg; 0 = nonstop, null if not captured. */
+  stops: number | null;
+  /** Marketing carrier for the itinerary. */
+  carrier: string | null;
+  /** Total outbound travel time in minutes; null when not captured. */
+  durationMinutes: number | null;
+  /** Outbound layovers in order; empty for a nonstop. */
+  layovers: Layover[];
+  /** Deep link to book this exact fare on Google Flights. */
+  googleFlightsUrl: string;
   /** Google's ~60-day price-history series for this trip (oldest first). */
   priceHistory: PricePoint[];
   /** Google's own current-price verdict for this trip, when captured. */

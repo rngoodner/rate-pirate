@@ -16,12 +16,12 @@ import {
   apiCallsToday,
   clearEvents,
   combosWithBaseline,
+  dealFlightDetails,
   errorsToday,
   getDealWithPlace,
   getPriceInsights,
   lastApiCallAt,
   logEvent,
-  recentDateOptions,
   recentEvents,
   resetPriceHistory,
   type DealWithPlace,
@@ -104,18 +104,9 @@ export function apiRoutes(deps: AppDeps): Hono {
     if (!deal) return c.json({ error: 'deal not found' }, 404);
     const { adults } = getSettings(db, config);
 
-    const options = recentDateOptions(
-      db,
-      deal.source,
-      deal.origin,
-      deal.destination,
-      deal.cabin,
-      deal.tripType,
-      7,
-      20,
-    );
-    // The sparkline and the price verdict both come from Google's own
-    // price-history for the exact trip, captured at scan time.
+    // The detailed view of THIS one fare: the deal's flight specifics (from the
+    // snapshot backing it) plus Google's price history/verdict for the trip.
+    const flight = dealFlightDetails(db, deal.source, deal.origin, deal.destination, deal.cabin, deal.tripType);
     const insights = getPriceInsights(
       db,
       deal.source,
@@ -126,21 +117,21 @@ export function apiRoutes(deps: AppDeps): Hono {
     );
     const detail: DealDetail = {
       ...toWireDeal(deal),
+      nights: Math.round((Date.parse(deal.returnDate) - Date.parse(deal.departDate)) / 86_400_000),
+      stops: flight?.stops ?? null,
+      carrier: flight?.carrier ?? null,
+      durationMinutes: flight?.durationMinutes ?? null,
+      layovers: flight?.layovers ?? [],
+      googleFlightsUrl: googleFlightsUrl(
+        deal.origin,
+        deal.destination,
+        deal.departDate,
+        deal.returnDate,
+        deal.cabin,
+        adults,
+      ),
       priceHistory: insights?.series ?? [],
       googleLevel: insights?.level ?? null,
-      dateOptions: options.map((o) => ({
-        ...o,
-        nights: Math.round((Date.parse(o.returnDate) - Date.parse(o.departDate)) / 86_400_000),
-        baselinePriceCents: deal.baselinePriceCents,
-        googleFlightsUrl: googleFlightsUrl(
-          deal.origin,
-          deal.destination,
-          o.departDate,
-          o.returnDate,
-          deal.cabin,
-          adults,
-        ),
-      })),
     };
     return c.json(detail);
   });

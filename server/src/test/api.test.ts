@@ -54,14 +54,14 @@ describe('API routes', () => {
     expect(deals[1]).toMatchObject({ city: 'Naples', country: 'Italy', score: 88 });
   });
 
-  it('GET /api/deals/:id returns the deal with date options and booking links', async () => {
+  it('GET /api/deals/:id returns the single fare with flight detail and a booking link', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);
     for (const [tripType, depart, ret, price, stops, carrier, duration, layovers] of [
-      ['one_week', '2099-08-18', '2099-08-26', 65000, 0, 'Delta', 140, []],
-      ['one_week', '2099-08-04', '2099-08-11', 88000, 1, 'United', 965, [{ airport: 'Atlanta', minutes: 211 }]],
-      // A different trip type — must NOT appear: the fare page is the detailed
-      // view of a single fare, scoped to its own (cabin, trip type).
+      // The deal's fare = the cheapest one-week snapshot (matches seedDeal).
+      ['one_week', '2099-08-18', '2099-08-26', 65000, 1, 'United', 965, [{ airport: 'Atlanta', minutes: 211 }]],
+      ['one_week', '2099-08-04', '2099-08-11', 88000, 0, 'Delta', 140, []],
+      // A different trip type must never inform this fare.
       ['two_weeks', '2099-09-05', '2099-09-19', 40000, 1, 'KL', 1200, [{ airport: 'Paris', minutes: 90 }]],
     ] as const) {
       insertSnapshot(db, {
@@ -102,23 +102,20 @@ describe('API routes', () => {
     expect(res.status).toBe(200);
     const detail = (await res.json()) as DealDetail;
     expect(detail.city).toBe('Naples');
-    expect(detail.dateOptions).toHaveLength(2);
-    // Cheapest first, carrying the flight detail we captured (duration nonstop).
-    expect(detail.dateOptions[0]).toMatchObject({
-      priceCents: 65000,
+    // One fare: the deal's own dates/price plus its itinerary's flight specifics
+    // (layovers round-trip through the JSON column).
+    expect(detail).toMatchObject({
+      departDate: '2099-08-18',
+      returnDate: '2099-08-26',
       nights: 8,
-      stops: 0,
-      carrier: 'Delta',
-      durationMinutes: 140,
-      layovers: [],
-    });
-    // Layovers round-trip through the JSON column on the pricier option.
-    expect(detail.dateOptions[1]).toMatchObject({
-      priceCents: 88000,
+      bestPriceCents: 65000,
+      baselinePriceCents: 100000,
+      stops: 1,
+      carrier: 'United',
       durationMinutes: 965,
       layovers: [{ airport: 'Atlanta', minutes: 211 }],
     });
-    expect(detail.dateOptions[0]!.googleFlightsUrl).toContain('google.com/travel/flights');
+    expect(detail.googleFlightsUrl).toContain('google.com/travel/flights');
     // Google's own verdict surfaces on the page.
     expect(detail.googleLevel).toBe('low');
     // The sparkline is Google's price-history series for the trip.

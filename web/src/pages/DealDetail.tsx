@@ -38,7 +38,8 @@ export default function DealDetail() {
   }
   if (!deal) return <p className="mt-12 text-center text-gray-400">Loading…</p>;
 
-  const [best, ...rest] = deal.dateOptions;
+  const savedCents = deal.baselinePriceCents - deal.bestPriceCents;
+  const detail = flightDetail(deal);
 
   return (
     <div>
@@ -61,70 +62,37 @@ export default function DealDetail() {
 
         {deal.googleLevel && <GoogleVerdict level={deal.googleLevel} />}
 
-        {best ? (
-          <a
-            href={best.googleFlightsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="block rounded-2xl border border-green-200 bg-green-50 p-4 active:bg-green-100"
-          >
-            {(() => {
-              const savedCents =
-                (best.baselinePriceCents ?? deal.baselinePriceCents) - best.priceCents;
-              return savedCents > 0 ? (
-                <p className="mb-3 rounded-xl bg-green-600 px-3 py-2 text-sm font-bold text-white">
-                  💰 Save {usd(savedCents)} vs the typical fare
-                </p>
-              ) : null;
-            })()}
-            <OptionRow
-              departDate={best.departDate}
-              returnDate={best.returnDate}
-              nights={best.nights}
-              stops={best.stops}
-              carrier={best.carrier}
-              durationMinutes={best.durationMinutes}
-              layovers={best.layovers}
-              priceCents={best.priceCents}
-              baselineCents={best.baselinePriceCents ?? deal.baselinePriceCents}
-            />
-            <p className="mt-2 text-sm font-semibold text-brand">Book on Google Flights →</p>
-          </a>
-        ) : (
-          <p className="mt-4 text-center text-gray-500">
-            No recent date options — check back after the next scan.
-          </p>
-        )}
-
-        {rest.map((o) => (
-          <a
-            key={`${o.departDate}-${o.returnDate}`}
-            href={o.googleFlightsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="block rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
-          >
-            <OptionRow
-              departDate={o.departDate}
-              returnDate={o.returnDate}
-              nights={o.nights}
-              stops={o.stops}
-              carrier={o.carrier}
-              durationMinutes={o.durationMinutes}
-              layovers={o.layovers}
-              priceCents={o.priceCents}
-              baselineCents={o.baselinePriceCents ?? deal.baselinePriceCents}
-            />
-          </a>
-        ))}
+        <a
+          href={deal.googleFlightsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded-2xl border border-green-200 bg-green-50 p-4 active:bg-green-100"
+        >
+          {savedCents > 0 && (
+            <p className="mb-3 rounded-xl bg-green-600 px-3 py-2 text-sm font-bold text-white">
+              💰 Save {usd(savedCents)} vs the typical fare
+            </p>
+          )}
+          <div className="flex items-center justify-between">
+            <span>
+              <span className="font-bold">
+                {shortDate(deal.departDate)} – {shortDate(deal.returnDate)}
+              </span>
+              <span className="block text-sm text-gray-500">Round trip • {deal.nights} nights</span>
+              {detail && <span className="block text-xs text-gray-400">{detail}</span>}
+            </span>
+            <PriceTag priceCents={deal.bestPriceCents} baselineCents={deal.baselinePriceCents} />
+          </div>
+          <p className="mt-2 text-sm font-semibold text-brand">Book on Google Flights →</p>
+        </a>
 
         <p className="mt-1 text-center text-xs text-gray-400">
           First spotted {timeAgo(deal.firstSeenAt)} • last seen {timeAgo(deal.lastSeenAt)}
         </p>
 
         <p className="mt-1 text-center text-xs text-gray-400">
-          Typical price is the median of Google’s price history for this trip. Tapping an option
-          opens Google Flights to book.
+          Typical price is the median of Google’s price history for this trip. Tapping “Book” opens
+          Google Flights for this exact itinerary.
         </p>
       </div>
     </div>
@@ -184,33 +152,4 @@ function flightDetail(props: {
   }
   const main = parts.join(' • ');
   return props.carrier ? `${main}${main ? ' · ' : ''}${props.carrier}` : main;
-}
-
-function OptionRow(props: {
-  departDate: string;
-  returnDate: string;
-  nights: number;
-  stops: number | null;
-  carrier: string | null;
-  durationMinutes: number | null;
-  layovers: Layover[];
-  priceCents: number;
-  baselineCents: number;
-}) {
-  const detail = flightDetail(props);
-  return (
-    <div className="flex items-center justify-between">
-      <span>
-        <span className="font-bold">
-          {shortDate(props.departDate)} – {shortDate(props.returnDate)}
-        </span>
-        <span className="block text-sm text-gray-500">Round trip • {props.nights} nights</span>
-        {detail && <span className="block text-xs text-gray-400">{detail}</span>}
-      </span>
-      <span className="flex items-center gap-1">
-        <PriceTag priceCents={props.priceCents} baselineCents={props.baselineCents} size="md" />
-        <span className="text-gray-400">›</span>
-      </span>
-    </div>
-  );
 }

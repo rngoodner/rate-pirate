@@ -343,58 +343,30 @@ export function getDealWithPlace(db: Db, id: number): DealWithPlace | null {
   return getDeal(db, id);
 }
 
-/** Most recent price per distinct date pair for a (destination, cabin,
- *  trip_type) combo, cheapest first. Powers the fare page's date options. */
-export function recentDateOptions(
+/** Flight specifics (stops, carrier, outbound duration, layovers) of the fare a
+ *  deal describes: the cheapest itinerary from the most recent scan of the combo
+ *  — the same snapshot the deal's price/dates come from. Null if none stored. */
+export function dealFlightDetails(
   db: Db,
   source: string,
   origin: string,
   destination: string,
   cabin: Cabin,
   tripType: TripType,
-  sinceDays: number,
-  limit: number,
-): {
-  departDate: string;
-  returnDate: string;
-  priceCents: number;
-  capturedAt: string;
-  stops: number | null;
-  carrier: string | null;
-  durationMinutes: number | null;
-  layovers: Layover[];
-}[] {
-  const rows = db
+): { stops: number | null; carrier: string | null; durationMinutes: number | null; layovers: Layover[] } | null {
+  const row = db
     .prepare(
-      `SELECT depart_date AS departDate, return_date AS returnDate,
-              price_cents AS priceCents, captured_at AS capturedAt, stops, carrier,
-              duration_minutes AS durationMinutes, layovers AS layoversJson
-       FROM (
-         SELECT *, ROW_NUMBER() OVER (
-           PARTITION BY depart_date, return_date ORDER BY captured_at DESC
-         ) AS rn
-         FROM price_snapshots
-         WHERE source = ? AND origin = ? AND destination = ? AND cabin = ?
-           AND trip_type = ?
-           AND captured_at >= datetime('now', '-' || ? || ' days')
-           AND depart_date >= date('now', 'localtime')
-       )
-       WHERE rn = 1 ORDER BY price_cents LIMIT ?`,
+      `SELECT stops, carrier, duration_minutes AS durationMinutes, layovers AS layoversJson
+       FROM price_snapshots
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?
+       ORDER BY captured_at DESC, price_cents ASC LIMIT 1`,
     )
-    .all(source, origin, destination, cabin, tripType, sinceDays, limit) as {
-    departDate: string;
-    returnDate: string;
-    priceCents: number;
-    capturedAt: string;
-    stops: number | null;
-    carrier: string | null;
-    durationMinutes: number | null;
-    layoversJson: string | null;
-  }[];
-  return rows.map(({ layoversJson, ...r }) => ({
-    ...r,
-    layovers: layoversJson ? (JSON.parse(layoversJson) as Layover[]) : [],
-  }));
+    .get(source, origin, destination, cabin, tripType) as
+    | { stops: number | null; carrier: string | null; durationMinutes: number | null; layoversJson: string | null }
+    | undefined;
+  if (!row) return null;
+  const { layoversJson, ...rest } = row;
+  return { ...rest, layovers: layoversJson ? (JSON.parse(layoversJson) as Layover[]) : [] };
 }
 
 /** Distinct MONITORED (cabin, trip_type) search combos that have produced Google
