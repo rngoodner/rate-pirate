@@ -60,6 +60,8 @@ const settingsPatchSchema = z
     alertMinDiscount: z.number().min(0.05).max(0.5),
     dealMinDiscount: z.number().min(0.01).max(0.3),
     alertCooldownDays: z.number().int().min(1).max(30),
+    // Party-size total in cents; 0 = no cap. Up to $100k.
+    alertMaxPriceCents: z.number().int().min(0).max(10_000_000),
   })
   .partial()
   .strict();

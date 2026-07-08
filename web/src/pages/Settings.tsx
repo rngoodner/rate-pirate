@@ -206,7 +206,10 @@ export default function Settings() {
           </button>
         </Field>
 
-        <Field label={`Alert threshold — score ${settings.alertThreshold}+`}>
+        <Field label="Email alerts">
+          <p className="mb-1 text-sm font-semibold text-gray-700">
+            Minimum score — {settings.alertThreshold}+
+          </p>
           <input
             className="w-full accent-brand"
             type="range"
@@ -224,6 +227,24 @@ export default function Settings() {
             The 0–100 score blends how rare a price is for the route with how far below typical
             it sits. 85 ≈ top-10% prices, a few emails a month; 95+ = only exceptional fares.
           </p>
+
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <p className="mb-1.5 text-sm font-semibold text-gray-700">Maximum price</p>
+            <div className="flex items-center gap-1">
+              <span className="text-lg font-bold text-gray-400">$</span>
+              <NumberInput
+                value={Math.round(settings.alertMaxPriceCents / 100)}
+                min={0}
+                max={100000}
+                label="Maximum email price in dollars"
+                onCommit={(n) => save({ alertMaxPriceCents: Math.round(n) * 100 })}
+              />
+            </div>
+            <p className={`mt-2 ${CARD_DESC}`}>
+              Never email a deal priced above this — the total for {settings.adults}{' '}
+              {settings.adults === 1 ? 'adult' : 'adults'}, as shown in the feed. 0 = no limit.
+            </p>
+          </div>
         </Field>
 
         <Field label="Scanning">

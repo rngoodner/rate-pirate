@@ -244,6 +244,9 @@ export interface Settings {
   dealMinDiscount: number;
   /** Days without re-alerting the same deal (unless the price deepens). */
   alertCooldownDays: number;
+  /** Never email a deal whose party-size total (the price shown in the feed and
+   *  email) exceeds this many cents. 0 = no cap. */
+  alertMaxPriceCents: number;
   /** Trip shapes to search on Explore (at least one): weekend / 1 week / 2 weeks.
    *  Each selected type × cabin is one Explore search over the next ~6 months. */
   tripTypes: TripType[];

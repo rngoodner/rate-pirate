@@ -12,6 +12,7 @@ const DEEPENING_FACTOR = 0.9;
 export type SkipReason =
   | 'below_threshold'
   | 'below_min_discount'
+  | 'above_max_price'
   | 'no_recipient'
   | 'cooldown'
   | 'send_failed';
@@ -32,6 +33,13 @@ export async function maybeAlert(
   if (deal.score < settings.alertThreshold) return { sent: false, reason: 'below_threshold' };
   if (deal.discountPct < settings.alertMinDiscount)
     return { sent: false, reason: 'below_min_discount' };
+  // Cap on the party-size total the user would actually pay (what the feed and
+  // email show). 0 = no cap. Prices are stored at 1 adult, so scale first.
+  if (
+    settings.alertMaxPriceCents > 0 &&
+    deal.bestPriceCents * settings.adults > settings.alertMaxPriceCents
+  )
+    return { sent: false, reason: 'above_max_price' };
   const recipients = parseRecipients(settings.alertEmail);
   if (recipients.length === 0) return { sent: false, reason: 'no_recipient' };
 

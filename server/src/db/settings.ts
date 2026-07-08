@@ -31,6 +31,7 @@ export function getSettings(db: Db, config: Config): Settings {
     alertMinDiscount: floatOr(stored.get('alert_min_discount'), 0.2),
     dealMinDiscount: floatOr(stored.get('deal_min_discount'), 0.05),
     alertCooldownDays: intOr(stored.get('alert_cooldown_days'), 7),
+    alertMaxPriceCents: intOr(stored.get('alert_max_price_cents'), 0),
     tripTypes: parseTripTypes(stored.get('trip_types')),
     adults: intOr(stored.get('adults'), 1),
   };
@@ -67,6 +68,7 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
     alert_min_discount: patch.alertMinDiscount?.toString(),
     deal_min_discount: patch.dealMinDiscount?.toString(),
     alert_cooldown_days: patch.alertCooldownDays?.toString(),
+    alert_max_price_cents: patch.alertMaxPriceCents?.toString(),
     trip_types: patch.tripTypes
       ? TRIP_TYPES.filter((t) => patch.tripTypes!.includes(t)).join(',')
       : undefined,

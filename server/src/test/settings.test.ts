@@ -19,6 +19,7 @@ describe('settings', () => {
       alertMinDiscount: 0.2,
       dealMinDiscount: 0.05,
       alertCooldownDays: 7,
+      alertMaxPriceCents: 0,
       tripTypes: ['one_week'],
       adults: 1,
     });
@@ -46,6 +47,7 @@ describe('settings', () => {
       alertMinDiscount: 0.15,
       dealMinDiscount: 0.1,
       alertCooldownDays: 3,
+      alertMaxPriceCents: 150_000,
       tripTypes: ['weekend', 'two_weeks'],
       adults: 3,
     });
@@ -53,6 +55,7 @@ describe('settings', () => {
     expect(s.alertMinDiscount).toBe(0.15);
     expect(s.dealMinDiscount).toBe(0.1);
     expect(s.alertCooldownDays).toBe(3);
+    expect(s.alertMaxPriceCents).toBe(150_000);
     expect(s.tripTypes).toEqual(['weekend', 'two_weeks']);
     expect(s.adults).toBe(3);
   });

@@ -15,6 +15,7 @@ const settings: Settings = {
   alertMinDiscount: 0.2,
   dealMinDiscount: 0.05,
   alertCooldownDays: 7,
+  alertMaxPriceCents: 0,
   tripTypes: ['one_week'],
   adults: 1,
 };
@@ -76,6 +77,31 @@ describe('maybeAlert', () => {
     expect(sent[0]!.subject).toContain('$1300'); // $650 × 2 adults
     expect(sent[0]!.subject).toContain('for 2 adults');
     expect(sent[0]!.html).toContain('👤 2'); // passenger icon + count above the price
+  });
+
+  it('skips a deal above the max price cap (party-size total), sends at/below it', async () => {
+    // Deal is $650 at 1 adult. Fresh DB per case so cooldown can't interfere.
+    const run = async (alertMaxPriceCents: number) => {
+      const db = openDb(':memory:');
+      const { sender } = fakeSender();
+      return maybeAlert(db, makeDeal(db), { ...settings, alertMaxPriceCents }, sender, '2026-06-20 08:00:00');
+    };
+    expect((await run(600_00)).reason).toBe('above_max_price'); // $650 > $600 cap
+    expect((await run(650_00)).sent).toBe(true); // exactly at the cap
+    expect((await run(700_00)).sent).toBe(true);
+    expect((await run(0)).sent).toBe(true); // 0 = no cap
+  });
+
+  it('applies the max price cap to the party-size total, not the 1-adult price', async () => {
+    const db = openDb(':memory:');
+    const { sender } = fakeSender();
+    // $650 × 2 adults = $1300 total; a $1000 cap must block it.
+    const party = { ...settings, adults: 2, alertMaxPriceCents: 1000_00 };
+    expect((await maybeAlert(db, makeDeal(db), party, sender, '2026-06-20 08:00:00')).reason).toBe(
+      'above_max_price',
+    );
+    const roomy = { ...settings, adults: 2, alertMaxPriceCents: 1500_00 };
+    expect((await maybeAlert(db, makeDeal(db), roomy, sender, '2026-06-20 09:00:00')).sent).toBe(true);
   });
 
   it('sends to every recipient when alertEmail lists several', async () => {
