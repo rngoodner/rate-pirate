@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { computeBaseline } from '../deals/baseline.js';
 import { openDb } from '../db/db.js';
 import {
   apiCallsToday,
@@ -9,10 +10,12 @@ import {
   logEvent,
   pruneEvents,
   pruneSnapshots,
+  getPriceInsights,
   recentEvents,
   recordApiCall,
   resetDailyBudget,
   upsertDeal,
+  upsertPriceInsights,
 } from '../db/repo.js';
 
 function snap(overrides: Partial<Parameters<typeof insertSnapshot>[1]> = {}) {
@@ -87,6 +90,54 @@ describe('repo', () => {
     recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: false, status: 429 });
     recordApiCall(db, { provider: 'other', endpoint: 'x', ok: true });
     expect(apiCallsToday(db, 'google-flights')).toBe(2);
+  });
+
+  it('bases the insight series on price history, else the Price graph (premium economy)', () => {
+    const db = openDb(':memory:');
+    const key = {
+      source: 'google-flights',
+      origin: 'ABQ',
+      destination: 'LHR',
+      cabin: 'premium_economy' as const,
+      tripType: 'weekend' as const,
+    };
+    const series = (base: number) =>
+      Array.from({ length: 12 }, (_, i) => ({ date: `2026-08-${10 + i}`, priceCents: base + i * 100 }));
+
+    // Premium economy: no history, but a Price graph → baseline from the graph.
+    upsertPriceInsights(db, key, {
+      level: null,
+      history: null,
+      priceGraph: series(200_000),
+      capturedAt: '2026-07-08 08:00:00',
+    });
+    let row = getPriceInsights(db, key.source, key.origin, key.destination, key.cabin, key.tripType);
+    expect(row?.seriesKind).toBe('price_graph');
+    expect(row?.medianCents).toBe(200_000 + 6 * 100); // median of the 12-point graph
+    expect(computeBaseline(row)).toEqual({ baselineCents: row!.medianCents, kind: 'google' });
+
+    // History, when present, wins over the price graph and is labeled as such.
+    upsertPriceInsights(db, { ...key, cabin: 'economy' }, {
+      level: 'typical',
+      history: series(90_000),
+      priceGraph: series(200_000),
+      capturedAt: '2026-07-08 08:00:00',
+    });
+    row = getPriceInsights(db, key.source, key.origin, key.destination, 'economy', key.tripType);
+    expect(row?.seriesKind).toBe('history');
+    expect(row?.medianCents).toBe(90_000 + 6 * 100);
+
+    // Neither → no series, no baseline (the pre-fix premium-economy reality).
+    upsertPriceInsights(db, { ...key, cabin: 'business' }, {
+      level: null,
+      history: null,
+      priceGraph: null,
+      capturedAt: '2026-07-08 08:00:00',
+    });
+    row = getPriceInsights(db, key.source, key.origin, key.destination, 'business', key.tripType);
+    expect(row?.seriesKind).toBeNull();
+    expect(row?.medianCents).toBeNull();
+    expect(computeBaseline(row)).toBeNull();
   });
 
   it('resets today\'s call budget for one provider only', () => {

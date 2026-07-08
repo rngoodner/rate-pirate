@@ -18,6 +18,7 @@ describe('computeBaseline', () => {
     level: 'typical' as const,
     medianCents,
     series: medianCents == null ? [] : [{ date: '2026-06-01', priceCents: medianCents }],
+    seriesKind: (medianCents == null ? null : 'history') as 'history' | 'price_graph' | null,
     capturedAt: '2026-07-06 08:00:00',
   });
 
@@ -181,6 +182,32 @@ describe('processCandidate', () => {
     });
     reevaluateDeals(db, 'mock', 'ABQ', 0.05, win, '2026-06-20 12:00:00');
     expect(getDealByCombo(db, 'mock', 'ABQ', 'CUN', 'economy', 'one_week')!.status).toBe('expired');
+  });
+
+  it('forms a premium-economy deal from a Price-graph baseline (no history exists)', () => {
+    const db = openDb(':memory:');
+    const peco: Candidate = {
+      source: 'mock', origin: 'ABQ', destination: 'LHR', city: 'London', country: 'United Kingdom',
+      cabin: 'premium_economy', tripType: 'weekend',
+    };
+    insertSnapshot(db, {
+      origin: 'ABQ', destination: 'LHR', city: 'London', country: 'United Kingdom',
+      cabin: 'premium_economy', tripType: 'weekend', travelMonth: '2026-08',
+      departDate: '2026-08-21', returnDate: '2026-08-24', priceCents: 140000,
+      stops: 1, carrier: 'BA', source: 'mock', capturedAt: '2026-06-20 08:00:00',
+    });
+    // Baseline from the Price graph only — the way premium economy actually works.
+    upsertPriceInsights(
+      db,
+      { source: 'mock', origin: 'ABQ', destination: 'LHR', cabin: 'premium_economy', tripType: 'weekend' },
+      { level: null, history: null, priceGraph: [{ date: '2026-08-21', priceCents: 230000 }], capturedAt: '2026-06-20 08:00:00' },
+    );
+
+    const deal = processCandidate(db, peco, '2026-06-20 08:00:00');
+    expect(deal).not.toBeNull();
+    expect(deal!.baselinePriceCents).toBe(230000);
+    expect(deal!.bestPriceCents).toBe(140000);
+    expect(deal!.status).toBe('active');
   });
 
   it('returns null during cold start (no Google baseline yet) and creates no deal', () => {

@@ -387,7 +387,12 @@ async function scanCandidate(
     tripType: cand.tripType,
   };
   if (insights) {
-    upsertPriceInsights(db, insightsKey, { level: insights.level, history: insights.history, capturedAt });
+    upsertPriceInsights(db, insightsKey, {
+      level: insights.level,
+      history: insights.history,
+      priceGraph: insights.priceGraph,
+      capturedAt,
+    });
   }
   if (provider.name === 'mock') {
     recordApiCall(db, {

@@ -72,7 +72,12 @@ async function seedDays(
             upsertPriceInsights(
               db,
               { source: 'mock', origin, destination: d.iata, cabin, tripType },
-              { level: insights.level, history: insights.history, capturedAt: asOf },
+              {
+                level: insights.level,
+                history: insights.history,
+                priceGraph: insights.priceGraph,
+                capturedAt: asOf,
+              },
             );
           }
           for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {

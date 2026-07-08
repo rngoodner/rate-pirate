@@ -207,6 +207,27 @@ export function parsePriceLevel(bodyText: string): PriceInsights['level'] {
   return m ? (m[1]!.toLowerCase() as 'low' | 'typical' | 'high') : null;
 }
 
+/** Convert the Price-graph bars into a {date, priceCents} series. Each bar's top
+ *  pixel is mapped to dollars by a linear fit through the y-axis $ labels (bars
+ *  and axis are read from the DOM in the same client-coordinate space). Rounds to
+ *  the nearest dollar; drops undated/non-positive bars. Pure so it's unit-tested
+ *  without a browser. Returns [] when there aren't enough bars/axis refs. */
+export function priceGraphSeries(
+  bars: { date: string | null; topY: number }[],
+  axis: { dollars: number; y: number }[],
+): { date: string; priceCents: number }[] {
+  if (bars.length < 6 || axis.length < 2) return [];
+  const lo = axis.reduce((p, c) => (c.dollars < p.dollars ? c : p));
+  const hi = axis.reduce((p, c) => (c.dollars > p.dollars ? c : p));
+  if (hi.y === lo.y) return [];
+  const m = (hi.dollars - lo.dollars) / (hi.y - lo.y);
+  const b = lo.dollars - m * lo.y;
+  return bars
+    .filter((bar): bar is { date: string; topY: number } => !!bar.date)
+    .map((bar) => ({ date: bar.date, priceCents: Math.round(m * bar.topY + b) * 100 }))
+    .filter((p) => p.priceCents > 0);
+}
+
 /** Price-history graph bar label: "61 days ago - $494" / "Today - $494".
  *  Returns the absolute 'YYYY-MM-DD' the bar refers to, anchored at `asOf`. */
 export function parseHistoryLabel(
@@ -460,7 +481,13 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
       el.click();
       return true;
     });
-    if (!clicked) return { level, history: null };
+    // No price-history graph on this page — premium economy never has one. Fall
+    // back to the Price graph (fare across departure dates), whose median is a
+    // valid baseline. See collectPriceGraph.
+    if (!clicked) {
+      const priceGraph = await this.collectPriceGraph(page).catch(() => null);
+      return { level, history: null, priceGraph };
+    }
 
     await page
       .waitForFunction(
@@ -482,8 +509,73 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
       .map((l) => parseHistoryLabel(l, asOf))
       .filter((p): p is { date: string; priceCents: number } => p !== null)
       .sort((a, b) => a.date.localeCompare(b.date));
-    // A thin series isn't a baseline — require a meaningful window.
-    return { level, history: history.length >= 10 ? history : null };
+    // A thin series isn't a baseline — require a meaningful window. When history
+    // is too thin, fall back to the Price graph, same as the no-history case.
+    if (history.length >= 10) return { level, history };
+    const priceGraph = await this.collectPriceGraph(page).catch(() => null);
+    return { level, history: null, priceGraph };
+  }
+
+  /** Google's "Price graph" (fare across departure dates) — the fallback baseline
+   *  source for cabins Google doesn't give a 60-day price *history* for (premium
+   *  economy). Returns the bar distribution as a {date, priceCents}[] series (date
+   *  = each bar's departure date), or null. Its median stands in for the history
+   *  median in computeBaseline.
+   *
+   *  The graph is an in-page panel (no extra page load): each bar is an SVG
+   *  `<path data-id="YYYY-MM-DD" data-rect="x,baseline,w,height">`, and the y-axis
+   *  is a set of `<tspan>$N</tspan>` labels. We linearly map a bar's top pixel to
+   *  dollars via the axis labels — validated live: the searched date's computed
+   *  price matched Google's shown price to ~0.3%. */
+  private async collectPriceGraph(page: Page): Promise<{ date: string; priceCents: number }[] | null> {
+    // Open the Price graph. A plain el.click() on the control's wrapper doesn't
+    // open it; a real mouse click at its center does.
+    const box = await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button, [role="button"], a')].find(
+        (n) => n.textContent?.trim() === 'Price graph',
+      );
+      if (!btn) return null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- DOM geometry, no dom lib in server tsconfig
+      const r = (btn as any).getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    if (!box) return null;
+    await page.mouse.click(box.x, box.y);
+    // Wait for both the bars AND the y-axis $ labels — the geometry read needs
+    // both, and they render a beat apart. Then a short settle so getBoundingClient-
+    // Rect returns final laid-out positions.
+    await page
+      .waitForFunction(
+        () =>
+          [...document.querySelectorAll('path[data-id][data-rect]')].length > 5 &&
+          [...document.querySelectorAll('tspan')].filter((t) =>
+            /^\$[\d,]+$/.test(t.textContent?.trim() ?? ''),
+          ).length >= 2,
+        { timeout: 8000 },
+      )
+      .catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Gather raw geometry in the page; do the pixel→dollar math in Node (pure,
+    // unit-tested) via priceGraphSeries.
+    const raw = await page.evaluate(() => ({
+      bars: [...document.querySelectorAll('path[data-id][data-rect]')].map((el) => ({
+        date: el.getAttribute('data-id'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- DOM geometry, no dom lib in server tsconfig
+        topY: (el as any).getBoundingClientRect().top as number,
+      })),
+      axis: [...document.querySelectorAll('tspan')]
+        .map((t) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- DOM geometry, no dom lib in server tsconfig
+          const r = (t as any).getBoundingClientRect();
+          return { txt: t.textContent?.trim() ?? '', y: r.top + r.height / 2 };
+        })
+        .filter((a) => /^\$[\d,]+$/.test(a.txt))
+        .map((a) => ({ dollars: Number(a.txt.replace(/[$,]/g, '')), y: a.y })),
+    }));
+    const series = priceGraphSeries(raw.bars, raw.axis);
+    // A thin series isn't a baseline, same threshold as the history path.
+    return series.length >= 10 ? series : null;
   }
 
   async close(): Promise<void> {

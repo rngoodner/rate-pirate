@@ -68,6 +68,11 @@ export interface PriceInsights {
   /** Daily prices for this trip over the last ~60 days (oldest first);
    *  null when not requested or the dialog failed to parse. */
   history: { date: string; priceCents: number }[] | null;
+  /** Fallback baseline series from Google's "Price graph" (fare across departure
+   *  dates), used where the 60-day price *history* doesn't exist — premium
+   *  economy. Same shape (date = the bar's departure date). Null when not
+   *  applicable or not captured. Its median stands in for the history median. */
+  priceGraph?: { date: string; priceCents: number }[] | null;
 }
 
 export interface MonthResult {

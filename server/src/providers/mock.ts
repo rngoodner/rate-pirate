@@ -149,21 +149,26 @@ export class SyntheticProvider implements FlightPriceProvider {
     return { quotes, insights: this.insights(q, base * seasonal, drop, dayKey) };
   }
 
-  /** Deterministic synthetic price insights mirroring the real provider:
-   *  a level verdict always, a ~60-day history series only when asked. */
+  /** Deterministic synthetic price insights mirroring the real provider: a level
+   *  verdict + a ~60-day series when asked. Mirrors the real Google gap — premium
+   *  economy has NO price *history* and no level, only a Price graph (fare across
+   *  departure dates); other cabins have history. Both are the same synthetic
+   *  distribution; only the source label differs. */
   private insights(q: MonthQuery, typicalUsd: number, drop: number, dayKey: number): PriceInsights {
     const level: PriceInsights['level'] = drop < 0.9 ? 'low' : 'typical';
-    if (!q.wantHistory) return { level, history: null };
-    const history: { date: string; priceCents: number }[] = [];
+    if (!q.wantHistory) return { level: q.cabin === 'premium_economy' ? null : level, history: null };
+    const series: { date: string; priceCents: number }[] = [];
     for (let daysAgo = 60; daysAgo >= 0; daysAgo--) {
       const day = dayKey - daysAgo;
       const noise = 0.92 + this.rand(`hist|${q.destination}|${q.month}|${q.cabin}|${day}`) * 0.2;
-      history.push({
+      series.push({
         date: new Date(day * 86_400_000).toISOString().slice(0, 10),
         priceCents: Math.round(typicalUsd * noise * 100),
       });
     }
-    return { level, history };
+    // Premium economy: no history/level on Google, baseline comes from the Price graph.
+    if (q.cabin === 'premium_economy') return { level: null, history: null, priceGraph: series };
+    return { level, history: series };
   }
 
   /** Stable per-destination base round-trip price in USD (500–1900). */

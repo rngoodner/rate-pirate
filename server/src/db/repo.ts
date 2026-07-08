@@ -403,6 +403,9 @@ export interface PriceInsightsRow {
   medianCents: number | null;
   /** Parsed series, oldest first; [] when none was captured. */
   series: { date: string; priceCents: number }[];
+  /** Where `series` came from: Google price history, or the Price graph (premium
+   *  economy). Null when no series has been captured. */
+  seriesKind: 'history' | 'price_graph' | null;
   capturedAt: string;
 }
 
@@ -412,22 +415,34 @@ export function upsertPriceInsights(
   insights: {
     level: string | null;
     history: { date: string; priceCents: number }[] | null;
+    /** Price-graph fallback (premium economy); used when there's no history. */
+    priceGraph?: { date: string; priceCents: number }[] | null;
     capturedAt: string;
   },
 ): void {
-  const prices = insights.history?.map((p) => p.priceCents) ?? [];
+  // Prefer the 60-day history; fall back to the Price graph where history doesn't
+  // exist (premium economy). Both feed the same median — the baseline is the
+  // median either way — but we record which source so the UI can label it.
+  const series = insights.history?.length ? insights.history : (insights.priceGraph ?? []);
+  const seriesKind = insights.history?.length
+    ? 'history'
+    : insights.priceGraph?.length
+      ? 'price_graph'
+      : null;
+  const prices = series.map((p) => p.priceCents);
   const medianCents = prices.length
     ? [...prices].sort((a, b) => a - b)[Math.floor(prices.length / 2)]!
     : null;
   db.prepare(
     `INSERT INTO price_insights (source, origin, destination, cabin, trip_type,
-       level, median_cents, series_json, captured_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       level, median_cents, series_json, series_kind, captured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(source, origin, destination, cabin, trip_type) DO UPDATE SET
        level = excluded.level,
        -- Keep an earlier series if a later capture didn't fetch one.
        median_cents = COALESCE(excluded.median_cents, price_insights.median_cents),
        series_json = COALESCE(excluded.series_json, price_insights.series_json),
+       series_kind = COALESCE(excluded.series_kind, price_insights.series_kind),
        captured_at = excluded.captured_at`,
   ).run(
     key.source,
@@ -437,11 +452,10 @@ export function upsertPriceInsights(
     key.tripType,
     insights.level,
     medianCents,
-    // Treat an empty history like no history (store NULL), so the COALESCE above
+    // Treat an empty series like none (store NULL), so the COALESCE above
     // preserves an earlier good series instead of overwriting it with '[]'.
-    insights.history && insights.history.length
-      ? JSON.stringify(insights.history.map((p) => [p.date, p.priceCents]))
-      : null,
+    series.length ? JSON.stringify(series.map((p) => [p.date, p.priceCents])) : null,
+    series.length ? seriesKind : null,
     insights.capturedAt,
   );
 }
@@ -457,12 +471,18 @@ export function getPriceInsights(
   const row = db
     .prepare(
       `SELECT level, median_cents AS medianCents, series_json AS seriesJson,
-              captured_at AS capturedAt
+              series_kind AS seriesKind, captured_at AS capturedAt
        FROM price_insights
        WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?`,
     )
     .get(source, origin, destination, cabin, tripType) as
-    | { level: PriceInsightsRow['level']; medianCents: number | null; seriesJson: string | null; capturedAt: string }
+    | {
+        level: PriceInsightsRow['level'];
+        medianCents: number | null;
+        seriesJson: string | null;
+        seriesKind: PriceInsightsRow['seriesKind'];
+        capturedAt: string;
+      }
     | undefined;
   if (!row) return null;
   const series = row.seriesJson
@@ -471,7 +491,13 @@ export function getPriceInsights(
         priceCents,
       }))
     : [];
-  return { level: row.level, medianCents: row.medianCents, series, capturedAt: row.capturedAt };
+  return {
+    level: row.level,
+    medianCents: row.medianCents,
+    series,
+    seriesKind: row.seriesKind ?? null,
+    capturedAt: row.capturedAt,
+  };
 }
 
 // --- alerts ---

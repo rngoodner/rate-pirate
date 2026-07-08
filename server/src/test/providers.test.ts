@@ -74,4 +74,18 @@ describe('SyntheticProvider', () => {
     const again = await p.monthQuotes({ ...q, wantHistory: true });
     expect(withHist.insights).toEqual(again.insights);
   });
+
+  it('mirrors the Google gap: premium economy has no history/level, only a Price graph', async () => {
+    const p = new SyntheticProvider({ seed: 5, now: fixedNow });
+    const eco = await p.monthQuotes({ ...q, cabin: 'economy', wantHistory: true });
+    expect(eco.insights?.history?.length).toBe(61);
+    expect(eco.insights?.priceGraph).toBeFalsy();
+
+    const peco = await p.monthQuotes({ ...q, cabin: 'premium_economy', wantHistory: true });
+    // No 60-day history and no price-level verdict for premium economy...
+    expect(peco.insights?.history).toBeNull();
+    expect(peco.insights?.level).toBeNull();
+    // ...but a Price-graph distribution that can seed a baseline.
+    expect(peco.insights?.priceGraph?.length).toBe(61);
+  });
 });

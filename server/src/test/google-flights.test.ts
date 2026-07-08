@@ -4,6 +4,7 @@ import {
   parseHistoryLabel,
   parsePriceLevel,
   parseResultLabel,
+  priceGraphSeries,
   representativeDates,
   withWorldwideBounds,
 } from '../providers/google-flights.js';
@@ -121,6 +122,50 @@ describe('parseHistoryLabel', () => {
     expect(parseHistoryLabel('From 885 US dollars round trip total.', asOf)).toBeNull();
     expect(parseHistoryLabel('61 days ago', asOf)).toBeNull();
     expect(parseHistoryLabel('$494', asOf)).toBeNull();
+  });
+});
+
+describe('priceGraphSeries', () => {
+  // Real y-axis geometry captured live from an ABQ→LHR premium-economy graph
+  // (viewport height 900): $ labels are evenly spaced, ~98px per $1,250.
+  const axis = [
+    { dollars: 3750, y: 351.34 },
+    { dollars: 2500, y: 449.34 },
+    { dollars: 1250, y: 547.34 },
+    { dollars: 0, y: 645.34 },
+  ];
+
+  it('maps bar top pixels to dollars via the axis and drops the $0 baseline bar', () => {
+    const bars = [
+      { date: '2026-08-21', topY: 449.34 }, // aligns with the $2,500 gridline
+      { date: '2026-08-22', topY: 547.34 }, // $1,250
+      { date: '2026-08-23', topY: 645.34 }, // $0 → dropped
+      { date: '2026-08-24', topY: 449.34 },
+      { date: '2026-08-25', topY: 547.34 },
+      { date: '2026-08-26', topY: 449.34 },
+      { date: null, topY: 449.34 }, // undated → dropped
+    ];
+    expect(priceGraphSeries(bars, axis)).toEqual([
+      { date: '2026-08-21', priceCents: 2500_00 },
+      { date: '2026-08-22', priceCents: 1250_00 },
+      { date: '2026-08-24', priceCents: 2500_00 },
+      { date: '2026-08-25', priceCents: 1250_00 },
+      { date: '2026-08-26', priceCents: 2500_00 },
+    ]);
+  });
+
+  it('recovers the real searched-date price to within rounding', () => {
+    // The live run showed Aug 21 ≈ $2,304; its bar top sits ~180.6px above the
+    // $0 baseline (2304 / 12.755 $/px). Computed price should land within ~$10.
+    const topY = 645.34 - 2304 / 12.755;
+    const [pt] = priceGraphSeries([...Array(6)].map((_, i) => ({ date: `2026-08-${21 + i}`, topY })), axis);
+    expect(Math.abs(pt!.priceCents / 100 - 2304)).toBeLessThanOrEqual(10);
+  });
+
+  it('returns [] without enough bars or axis references', () => {
+    expect(priceGraphSeries([{ date: '2026-08-21', topY: 449 }], axis)).toEqual([]);
+    const sixBars = [...Array(6)].map((_, i) => ({ date: `2026-08-2${i}`, topY: 449 }));
+    expect(priceGraphSeries(sixBars, [{ dollars: 2500, y: 449 }])).toEqual([]);
   });
 });
 
