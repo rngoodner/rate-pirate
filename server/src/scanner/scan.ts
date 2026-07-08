@@ -128,9 +128,23 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   // zero prices for every candidate while other cabins keep the batch healthy.
   const byCabin = new Map<string, { scanned: number; snapshots: number }>();
 
+  // Destinations backing a currently-shown deal, per combo. We re-price these
+  // FIRST within a combo and track exactly which shown deals got re-priced
+  // (`cabin|tripType|destination`), so budget spent discovering NEW candidates
+  // can never starve verification of deals already on the feed.
+  const shownByCombo = new Map<string, Set<string>>();
+  for (const d of activeDealsWithPlace(db, provider.name, settings.monitoredCabins)) {
+    const k = `${d.cabin}|${d.tripType}`;
+    let set = shownByCombo.get(k);
+    if (!set) shownByCombo.set(k, (set = new Set()));
+    set.add(d.destination);
+  }
+  const scoredKeys = new Set<string>();
+
   // One Explore search per (trip type, cabin) discovers a ranked destination
-  // list; the fixed-date scraper then scores each candidate cheapest-first
-  // until the daily budget runs out (the rest roll to the next cron batch).
+  // list; the fixed-date scraper then scores each candidate — shown deals first,
+  // then new candidates cheapest-first — until the daily budget runs out (the
+  // rest roll to the next cron batch).
   outer: for (const tripType of settings.tripTypes) {
     for (const cabin of settings.monitoredCabins) {
       if (budgetLeft() <= 0 || scanned >= scoreLimit) break outer;
@@ -162,7 +176,17 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       if (destinations.length === 0) continue;
       scannedCombos.add(`${cabin}|${tripType}`);
       planned += destinations.length;
-      for (const d of destinations) {
+      // Front-load destinations that back a shown deal (verify before discover);
+      // the rest keep Explore's cheapest-first order (best new deals next).
+      const shown = shownByCombo.get(`${cabin}|${tripType}`);
+      const ordered =
+        shown && shown.size
+          ? [
+              ...destinations.filter((d) => shown.has(d.iata)),
+              ...destinations.filter((d) => !shown.has(d.iata)),
+            ]
+          : destinations;
+      for (const d of ordered) {
         if (budgetLeft() <= 0 || scanned >= scoreLimit) break;
         const cand: Candidate = {
           source: provider.name,
@@ -173,6 +197,7 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
           cabin,
           tripType,
         };
+        scoredKeys.add(`${cabin}|${tripType}|${d.iata}`); // attempted this batch
         try {
           const r = await scanCandidate(deps, cand, d, now, settings.adults);
           scanned++;
@@ -208,9 +233,10 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
     }
   }
 
-  // Safety net: re-price shown deals whose combo this batch never reached (budget
-  // cut it off), so a moved/vanished fare still updates. Cheap — few active deals.
-  const v = await verifyShownDeals(deps, settings, now, scannedCombos, budgetLeft);
+  // Safety net: re-price any shown deal the main loop didn't already re-price
+  // (its combo returned empty, was never reached, or budget cut off before its
+  // destination), so a moved/vanished fare still updates. Cheap — few deals.
+  const v = await verifyShownDeals(deps, settings, now, scoredKeys, budgetLeft);
   snapshots += v.snapshots;
   failures += v.failures;
 
@@ -334,19 +360,21 @@ async function scanCandidate(
   return { snapshots, hadQuotes: quotes.length > 0 };
 }
 
-/** Re-price currently-shown deals whose (cabin, trip_type) combo wasn't scanned
- *  this batch, so a fare that has moved or vanished is refreshed/dropped.
- *  Budget-capped; the active-deal count is small so this is cheap. */
+/** Re-price currently-shown deals the main loop didn't already re-price this
+ *  batch (identified by `cabin|tripType|destination` in `scoredKeys`), so a fare
+ *  that has moved or vanished is refreshed/dropped. Budget-capped; the
+ *  active-deal count is small so this is cheap. An empty `scoredKeys` (the
+ *  on-demand re-check) verifies every shown deal. */
 async function verifyShownDeals(
   deps: ScanDeps,
   settings: ReturnType<typeof getSettings>,
   now: () => Date,
-  scannedCombos: Set<string>,
+  scoredKeys: Set<string>,
   budgetLeft: () => number,
 ): Promise<{ verified: number; dropped: number; snapshots: number; failures: number }> {
   const { db, provider } = deps;
   const toVerify = activeDealsWithPlace(db, provider.name, settings.monitoredCabins).filter(
-    (d) => !scannedCombos.has(`${d.cabin}|${d.tripType}`),
+    (d) => !scoredKeys.has(`${d.cabin}|${d.tripType}|${d.destination}`),
   );
   let verified = 0;
   let dropped = 0;

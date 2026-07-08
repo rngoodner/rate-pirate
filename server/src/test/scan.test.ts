@@ -168,6 +168,59 @@ describe('runScanBatch guards', () => {
     expect(othersBefore).toBeGreaterThan(1); // sanity: Explore did return a full list
   }, 30_000);
 
+  it('verifies a shown deal the score budget did not reach in its own scanned combo', async () => {
+    // The gap: a combo IS scanned (some candidates scored), but the score limit
+    // stops before a shown deal's destination. That deal must still be re-priced
+    // by the post-scan pass — not skipped just because its combo ran.
+    const db = openDb(':memory:');
+    updateSettings(db, { dailyCallBudget: 2000, monitoredCabins: ['economy'], tripTypes: ['one_week'] });
+    const config = loadConfig({});
+    const inner = new SyntheticProvider({ seed: 3 });
+    const dests = ['AAA', 'BBB', 'CCC'].map((iata) => ({
+      iata,
+      city: iata,
+      country: 'X',
+      departDate: '2026-09-07',
+      returnDate: '2026-09-14',
+    }));
+    for (const d of dests) inner.injectDrop(d.iata, '2026-09', 0.5); // deep drop → each is a deal
+    let cGone = false;
+    const virtualNow = new Date('2026-08-15T06:00:00Z');
+    const provider: FlightPriceProvider = {
+      name: 'mock',
+      exploreSearch: async () => dests, // all three keep ranking
+      monthQuotes: async (q: MonthQuery): Promise<MonthResult> =>
+        q.destination === 'CCC' && cGone ? { quotes: [], insights: null } : inner.monthQuotes(q),
+    };
+    const deps: ScanDeps = {
+      db,
+      config,
+      provider,
+      now: () => virtualNow,
+      onQuotes: createOnQuotes(db, config, { name: 'console', send: async () => {} }, 'mock', () => virtualNow),
+    };
+
+    // Batch 1: all three become active deals.
+    await runScanBatch(deps);
+    expect(activeDealsWithPlace(db, 'mock', ['economy']).map((d) => d.destination).sort()).toEqual([
+      'AAA',
+      'BBB',
+      'CCC',
+    ]);
+
+    // Batch 2: CCC's fare vanishes, but the score limit (2) stops after the first
+    // two shown deals — CCC is never re-priced by the main loop, yet still ranks
+    // in Explore (so expireDealsNotSeen keeps it). The verify pass must drop it.
+    cGone = true;
+    const r = await runScanBatch(deps, 2);
+    expect(r.scanned).toBe(2); // main loop honored the score limit
+    const active = activeDealsWithPlace(db, 'mock', ['economy']).map((d) => d.destination).sort();
+    expect(active).toEqual(['AAA', 'BBB']); // CCC dropped despite its combo being scanned
+    expect(recentEvents(db, 20).some((e) => /verified \d+ shown deal.*dropped/.test(e.message))).toBe(
+      true,
+    );
+  }, 30_000);
+
   it('enforces the budget against the LOCAL day when no virtual clock is injected', async () => {
     const deps = makeDeps();
     updateSettings(deps.db, { dailyCallBudget: 10 });
