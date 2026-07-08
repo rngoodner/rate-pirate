@@ -29,16 +29,16 @@ export const api = {
   clearEvents: () => request<{ cleared: number }>('/api/events', { method: 'DELETE' }),
   /** Synchronous on the server (minutes for a real batch) — callers should
    *  treat a client-side timeout as "started, watch the Activity log". */
-  scan: () =>
+  scan: (overrideBudget = false) =>
     request<{ planned: number; scanned: number; snapshots: number; failures: number; skippedReason?: string }>(
-      '/api/scan',
+      `/api/scan${overrideBudget ? '?override=true' : ''}`,
       { method: 'POST', signal: AbortSignal.timeout(8_000) },
     ),
-  verifyDeals: () =>
-    request<{ verified: number; dropped: number; skippedReason?: string }>('/api/verify-deals', {
-      method: 'POST',
-      signal: AbortSignal.timeout(8_000),
-    }),
+  verifyDeals: (overrideBudget = false) =>
+    request<{ verified: number; dropped: number; skippedReason?: string }>(
+      `/api/verify-deals${overrideBudget ? '?override=true' : ''}`,
+      { method: 'POST', signal: AbortSignal.timeout(8_000) },
+    ),
   testEmail: () =>
     request<{ sent: boolean; via: string; to: string }>('/api/test-email', { method: 'POST' }),
 };

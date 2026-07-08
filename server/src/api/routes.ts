@@ -289,9 +289,15 @@ export function apiRoutes(deps: AppDeps): Hono {
   // so the feed's red banner clears with it.
   api.delete('/events', (c) => c.json({ cleared: clearEvents(db) }));
 
-  api.post('/scan', async (c) => c.json(await runScanBatch(deps)));
+  // `?override=true` runs the manual scan even if the daily budget is spent
+  // (the user confirmed going over) — Advanced buttons only.
+  api.post('/scan', async (c) =>
+    c.json(await runScanBatch(deps, undefined, { overrideBudget: c.req.query('override') === 'true' })),
+  );
 
-  api.post('/verify-deals', async (c) => c.json(await runDealVerification(deps)));
+  api.post('/verify-deals', async (c) =>
+    c.json(await runDealVerification(deps, { overrideBudget: c.req.query('override') === 'true' })),
+  );
 
   api.post('/test-email', async (c) => {
     const sender = deps.sender;

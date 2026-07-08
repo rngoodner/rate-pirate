@@ -418,10 +418,18 @@ function Advanced({
     scan_disabled: 'Scanning is turned off (toggle above).',
   };
 
-  async function verifyDeals() {
+  async function verifyDeals(override = false) {
     setVerifyBusy(true);
     try {
-      const r = await api.verifyDeals();
+      const r = await api.verifyDeals(override);
+      // Manual actions may go over the daily budget — ask, then force it.
+      if (r.skippedReason === 'budget_exhausted' && !override) {
+        if (window.confirm("Today's call budget is spent. Re-check deals anyway, going over budget?")) {
+          return verifyDeals(true);
+        }
+        notify('Re-check skipped — daily budget is spent.', true);
+        return;
+      }
       notify(
         r.skippedReason
           ? (SKIP_REASONS[r.skippedReason] ?? `Skipped: ${r.skippedReason}`)
@@ -436,11 +444,19 @@ function Advanced({
     }
   }
 
-  async function runScan() {
+  async function runScan(override = false) {
     setScanBusy(true);
-    notify('Scan batch requested…');
+    if (!override) notify('Scan batch requested…');
     try {
-      const r = await api.scan();
+      const r = await api.scan(override);
+      // Manual actions may go over the daily budget — ask, then force it.
+      if (r.skippedReason === 'budget_exhausted' && !override) {
+        if (window.confirm("Today's call budget is spent. Run this scan anyway, going over budget?")) {
+          return runScan(true);
+        }
+        notify('Scan skipped — daily budget is spent.', true);
+        return;
+      }
       notify(
         r.skippedReason
           ? (SKIP_REASONS[r.skippedReason] ?? `Skipped: ${r.skippedReason}`)
@@ -542,7 +558,7 @@ function Advanced({
             <button
               type="button"
               disabled={scanBusy || verifyBusy}
-              onClick={runScan}
+              onClick={() => runScan()}
               className="w-full rounded-xl border border-brand py-2 text-sm font-semibold text-brand active:bg-brand-pale disabled:opacity-50"
             >
               {scanBusy ? 'Requesting…' : 'Run scan batch now'}
@@ -550,7 +566,7 @@ function Advanced({
             <button
               type="button"
               disabled={scanBusy || verifyBusy}
-              onClick={verifyDeals}
+              onClick={() => verifyDeals()}
               className="w-full rounded-xl border border-brand py-2 text-sm font-semibold text-brand active:bg-brand-pale disabled:opacity-50"
             >
               {verifyBusy ? 'Re-checking…' : 'Re-check current deals'}

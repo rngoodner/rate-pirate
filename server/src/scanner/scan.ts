@@ -54,19 +54,27 @@ export function calendarRef(d: Date, virtualClock = false): Date {
   return virtualClock ? d : new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
 }
 
-export async function runScanBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult> {
+export async function runScanBatch(
+  deps: ScanDeps,
+  batchLimit?: number,
+  opts: { overrideBudget?: boolean } = {},
+): Promise<ScanResult> {
   if (batchInFlight) {
     return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'already_running' };
   }
   batchInFlight = true;
   try {
-    return await runBatch(deps, batchLimit);
+    return await runBatch(deps, batchLimit, opts);
   } finally {
     batchInFlight = false;
   }
 }
 
-async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult> {
+async function runBatch(
+  deps: ScanDeps,
+  batchLimit?: number,
+  opts: { overrideBudget?: boolean } = {},
+): Promise<ScanResult> {
   const { db, config, provider } = deps;
   const virtualClock = deps.now !== undefined;
   const now = deps.now ?? (() => new Date());
@@ -100,9 +108,10 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
 
   // Real clock: count against the LOCAL day (apiCallsToday's no-asOf branch);
   // the asOf branch exists for the simulator's virtual timestamps only.
+  const override = opts.overrideBudget === true;
   const used = apiCallsToday(db, provider.name, virtualClock ? asOf : undefined);
   const remaining = settings.dailyCallBudget - used;
-  if (remaining <= 0) {
+  if (!override && remaining <= 0) {
     logEvent(db, {
       level: 'info',
       scope: 'batch',
@@ -111,9 +120,20 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
     });
     return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'budget_exhausted' };
   }
+  if (override && remaining <= 0) {
+    logEvent(db, {
+      level: 'info',
+      scope: 'batch',
+      message: `manual scan running over budget (${used}/${settings.dailyCallBudget} already used today)`,
+      at: asOf,
+    });
+  }
 
-  const budgetLeft = () =>
-    settings.dailyCallBudget - apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+  // When overriding, budget never blocks (scoreLimit still caps the batch size).
+  const budgetLeft = override
+    ? () => Number.POSITIVE_INFINITY
+    : () =>
+        settings.dailyCallBudget - apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
   // Cap candidates scored per batch so a cron batch spreads the day's work
   // (budget/4 by default, matching the 4 daily slots); an explicit limit wins.
   const scoreLimit = batchLimit ?? Math.ceil(settings.dailyCallBudget / 4);
@@ -428,8 +448,12 @@ export interface VerifyResult {
 }
 
 /** Re-scrape every currently-shown deal on demand (Advanced → re-check deals),
- *  independent of a full batch. Shares the batch mutex and respects the budget. */
-export async function runDealVerification(deps: ScanDeps): Promise<VerifyResult> {
+ *  independent of a full batch. Shares the batch mutex and respects the budget
+ *  unless `overrideBudget` is set (the user confirmed going over). */
+export async function runDealVerification(
+  deps: ScanDeps,
+  opts: { overrideBudget?: boolean } = {},
+): Promise<VerifyResult> {
   if (batchInFlight) return { verified: 0, dropped: 0, skippedReason: 'already_running' };
   batchInFlight = true;
   try {
@@ -448,9 +472,12 @@ export async function runDealVerification(deps: ScanDeps): Promise<VerifyResult>
       cabins: settings.monitoredCabins,
       tripTypes: settings.tripTypes,
     });
-    const budgetLeft = () =>
-      settings.dailyCallBudget - apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
-    if (budgetLeft() <= 0) return { verified: 0, dropped: 0, skippedReason: 'budget_exhausted' };
+    const override = opts.overrideBudget === true;
+    const budgetLeft = override
+      ? () => Number.POSITIVE_INFINITY
+      : () =>
+          settings.dailyCallBudget - apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+    if (!override && budgetLeft() <= 0) return { verified: 0, dropped: 0, skippedReason: 'budget_exhausted' };
     // Empty scoredKeys → verify every shown deal.
     const { verified, dropped } = await verifyShownDeals(deps, settings, now, new Set(), budgetLeft);
     return { verified, dropped };

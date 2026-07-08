@@ -4,7 +4,7 @@ import { activeDealsWithPlace, recentEvents } from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
 import { SyntheticProvider } from '../providers/mock.js';
-import { runScanBatch, type ScanDeps } from '../scanner/scan.js';
+import { runDealVerification, runScanBatch, type ScanDeps } from '../scanner/scan.js';
 import { createOnQuotes } from '../pipeline.js';
 import type { ExploreQuery, FlightPriceProvider, MonthQuery, MonthResult } from '../providers/types.js';
 
@@ -237,10 +237,31 @@ describe('runScanBatch guards', () => {
     const result = await runScanBatch(deps);
     expect(result.skippedReason).toBe('budget_exhausted');
 
+    // overrideBudget (the Advanced "run anyway" path) scans despite the spent
+    // budget; scoreLimit still bounds it to one batch.
+    const forced = await runScanBatch(deps, undefined, { overrideBudget: true });
+    expect(forced.skippedReason).toBeUndefined();
+    expect(forced.scanned).toBeGreaterThan(0);
+
     // Sanity: with budget headroom the real-clock path scans normally.
     updateSettings(deps.db, { dailyCallBudget: 40 });
     const ok = await runScanBatch(deps);
     expect(ok.skippedReason).toBeUndefined();
     expect(ok.scanned).toBeGreaterThan(0);
+  });
+
+  it('runDealVerification honors overrideBudget when the budget is spent', async () => {
+    const deps = makeDeps();
+    updateSettings(deps.db, { dailyCallBudget: 5 });
+    for (let i = 0; i < 5; i++) {
+      deps.db
+        .prepare(
+          `INSERT INTO api_calls (provider, endpoint, ok, called_at)
+           VALUES ('mock', 'monthQuotes', 1, datetime('now', '-1 minute'))`,
+        )
+        .run();
+    }
+    expect((await runDealVerification(deps)).skippedReason).toBe('budget_exhausted');
+    expect((await runDealVerification(deps, { overrideBudget: true })).skippedReason).toBeUndefined();
   });
 });
