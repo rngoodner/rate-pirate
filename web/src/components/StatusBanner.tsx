@@ -15,8 +15,10 @@ export default function StatusBanner() {
 
   if (!status) return null;
 
-  // Failing scans outrank the cold-start notice. The judgment lives server-side
-  // (it needs event scopes the status JSON doesn't expose).
+  // Only surface a genuine problem: failing scans. The cold-start "N% of
+  // searches have data" notice was noise (coarse, and self-resolving), so it's
+  // gone. The judgment lives server-side (it needs event scopes the status JSON
+  // doesn't expose).
   if (status.scansBroken) {
     return (
       <div className="mb-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -28,12 +30,5 @@ export default function StatusBanner() {
     );
   }
 
-  if (status.baselineCoverage >= 0.9) return null;
-  const pct = Math.round(status.baselineCoverage * 100);
-  return (
-    <div className="mb-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-      <strong>Getting started…</strong> {pct}% of your searches have price data. More deals appear
-      as scans complete.
-    </div>
-  );
+  return null;
 }
