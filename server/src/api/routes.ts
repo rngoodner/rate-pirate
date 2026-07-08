@@ -24,6 +24,7 @@ import {
   logEvent,
   recentDateOptions,
   recentEvents,
+  resetPriceHistory,
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
@@ -88,10 +89,13 @@ export function apiRoutes(deps: AppDeps): Hono {
   api.get('/health', (c) => c.json({ ok: true }));
 
   api.get('/deals', (c) => {
-    const { monitoredCabins } = getSettings(db, config);
-    const deals: Deal[] = activeDealsWithPlace(db, deps.provider.name, monitoredCabins).map(
-      toWireDeal,
-    );
+    const { monitoredCabins, tripTypes } = getSettings(db, config);
+    const deals: Deal[] = activeDealsWithPlace(
+      db,
+      deps.provider.name,
+      monitoredCabins,
+      tripTypes,
+    ).map(toWireDeal);
     return c.json(deals);
   });
 
@@ -171,6 +175,17 @@ export function apiRoutes(deps: AppDeps): Hono {
     const before = getSettings(db, config);
     updateSettings(db, parsed.data);
     const after = getSettings(db, config);
+    // Party size rescales every price, so old snapshots/medians are invalid for
+    // the new one — wipe them (deals rebuild at the new scale on the next scan)
+    // rather than score a small-party fare against a large-party baseline.
+    if (after.adults !== before.adults) {
+      const { deals, snapshots } = resetPriceHistory(db, deps.provider.name);
+      logEvent(db, {
+        level: 'info',
+        scope: 'system',
+        message: `party size changed to ${after.adults} — reset price history (expired ${deals} deal${deals === 1 ? '' : 's'}, cleared ${snapshots} snapshots); re-prices on the next scan`,
+      });
+    }
     // A feed-floor change applies instantly: re-run detection over stored
     // snapshots (no scans, no alerts) instead of waiting a full scan cycle.
     if (after.dealMinDiscount !== before.dealMinDiscount) {
@@ -188,7 +203,12 @@ export function apiRoutes(deps: AppDeps): Hono {
         },
         sqliteStamp(new Date()),
       );
-      const active = activeDealsWithPlace(db, deps.provider.name, after.monitoredCabins).length;
+      const active = activeDealsWithPlace(
+        db,
+        deps.provider.name,
+        after.monitoredCabins,
+        after.tripTypes,
+      ).length;
       logEvent(db, {
         level: 'info',
         scope: 'system',
@@ -219,8 +239,22 @@ export function apiRoutes(deps: AppDeps): Hono {
       baselineCoverage:
         universe === 0
           ? 0
-          : Math.min(1, combosWithBaseline(db, deps.provider.name, settings.homeAirport) / universe),
-      activeDeals: activeDealsWithPlace(db, deps.provider.name, settings.monitoredCabins).length,
+          : Math.min(
+              1,
+              combosWithBaseline(
+                db,
+                deps.provider.name,
+                settings.homeAirport,
+                settings.monitoredCabins,
+                settings.tripTypes,
+              ) / universe,
+            ),
+      activeDeals: activeDealsWithPlace(
+        db,
+        deps.provider.name,
+        settings.monitoredCabins,
+        settings.tripTypes,
+      ).length,
       errorsToday: errors,
       scansBroken,
       nextBatchAt: settings.scanEnabled ? sqliteStamp(nextBatchAt()) : null,

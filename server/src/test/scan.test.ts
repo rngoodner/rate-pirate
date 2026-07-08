@@ -109,14 +109,14 @@ describe('runScanBatch guards', () => {
     const cun = (await provider.exploreSearch({ origin: 'ABQ', cabin: 'economy', tripType: 'one_week', adults: 1 }))[0]!;
     inner.injectDrop('CUN', cun.departDate.slice(0, 7), 0.5);
     await runScanBatch(deps);
-    expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(true);
+    expect(activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).some((d) => d.destination === 'CUN')).toBe(true);
 
     // Fares vanish. batchLimit 0 means the main loop scans nothing, so ONLY the
     // post-scan verification pass runs — and it must drop the now-gone deal.
     faresGone = true;
     virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 86_400_000);
     await runScanBatch(deps, 0);
-    expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(
+    expect(activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).some((d) => d.destination === 'CUN')).toBe(
       false,
     );
     expect(recentEvents(db, 20).some((e) => /verified \d+ shown deal.*dropped/.test(e.message))).toBe(
@@ -155,14 +155,14 @@ describe('runScanBatch guards', () => {
     )!;
     inner.injectDrop('CUN', cun.departDate.slice(0, 7), 0.5);
     await runScanBatch(deps);
-    expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(true);
-    const othersBefore = activeDealsWithPlace(db, 'mock', ['economy']).length;
+    expect(activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).some((d) => d.destination === 'CUN')).toBe(true);
+    const othersBefore = activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).length;
 
     // Next batch: CUN gone from Explore, everything else still priced.
     listCun = false;
     virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 86_400_000);
     await runScanBatch(deps);
-    const active = activeDealsWithPlace(db, 'mock', ['economy']);
+    const active = activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']);
     expect(active.some((d) => d.destination === 'CUN')).toBe(false); // expired: no longer seen
     expect(active.length).toBeGreaterThan(0); // the rest of the feed is untouched
     expect(othersBefore).toBeGreaterThan(1); // sanity: Explore did return a full list
@@ -202,7 +202,7 @@ describe('runScanBatch guards', () => {
 
     // Batch 1: all three become active deals.
     await runScanBatch(deps);
-    expect(activeDealsWithPlace(db, 'mock', ['economy']).map((d) => d.destination).sort()).toEqual([
+    expect(activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).map((d) => d.destination).sort()).toEqual([
       'AAA',
       'BBB',
       'CCC',
@@ -214,7 +214,7 @@ describe('runScanBatch guards', () => {
     cGone = true;
     const r = await runScanBatch(deps, 2);
     expect(r.scanned).toBe(2); // main loop honored the score limit
-    const active = activeDealsWithPlace(db, 'mock', ['economy']).map((d) => d.destination).sort();
+    const active = activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).map((d) => d.destination).sort();
     expect(active).toEqual(['AAA', 'BBB']); // CCC dropped despite its combo being scanned
     expect(recentEvents(db, 20).some((e) => /verified \d+ shown deal.*dropped/.test(e.message))).toBe(
       true,

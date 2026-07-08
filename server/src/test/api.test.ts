@@ -122,6 +122,22 @@ describe('API routes', () => {
     expect(await (await app.request('/api/deals/999')).status).toBe(404);
   });
 
+  it('changing party size resets captured price history and clears the feed', async () => {
+    const { app, db } = makeApp();
+    seedDeal(db, 'NAP', 90); // priced at the old party size
+    expect(((await (await app.request('/api/deals')).json()) as Deal[]).length).toBe(1);
+
+    const put = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ adults: 3 }),
+    });
+    expect(put.status).toBe(200);
+    // The prior-party-size deal is retired so it can't be scored against a
+    // mismatched baseline; the feed rebuilds on the next scan.
+    expect(((await (await app.request('/api/deals')).json()) as Deal[]).length).toBe(0);
+  });
+
   it('GET/PUT /api/settings round-trips and validates', async () => {
     const { app } = makeApp();
     const initial = (await (await app.request('/api/settings')).json()) as Settings;

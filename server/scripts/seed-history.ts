@@ -4,7 +4,7 @@
  *  Usage: npx tsx scripts/seed-history.ts [days]
  *  Note: with PROVIDER=mock, the server also auto-seeds on boot if no mock
  *  history exists — this script is only needed to force a fresh demo state. */
-import { CABINS } from '@rate-pirate/shared';
+import { CABINS, TRIP_TYPES } from '@rate-pirate/shared';
 import { loadConfig } from '../src/config.js';
 import { openDb } from '../src/db/db.js';
 import { activeDealsWithPlace, purgeMockData } from '../src/db/repo.js';
@@ -22,7 +22,7 @@ const { snapshots } = await seedDemoHistory(db, {
   log: (line) => console.log(line),
 });
 
-const deals = activeDealsWithPlace(db, 'mock', [...CABINS]);
+const deals = activeDealsWithPlace(db, 'mock', [...CABINS], [...TRIP_TYPES]);
 console.log(`\nseeded ${snapshots} snapshots over ${days} days — ${deals.length} active demo deals`);
 for (const d of deals.slice(0, 8)) {
   console.log(

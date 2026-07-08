@@ -140,6 +140,14 @@ describe('parseResultLabel', () => {
     });
   });
 
+  it('counts a "day" component in total duration', () => {
+    const p = parseResultLabel(
+      'From 1500 US dollars round trip total. 1 stop flight with United. Total duration 1 day 4 hr 30 min. Layover (1 of 1) is a 2 hr layover at Denver International Airport in Denver. Select flight',
+    );
+    expect(p?.durationMinutes).toBe(1710); // 1440 + 240 + 30
+    expect(p?.layovers).toEqual([{ airport: 'Denver', minutes: 120 }]);
+  });
+
   it('handles nonstop, multi-carrier, and comma prices', () => {
     expect(
       parseResultLabel(

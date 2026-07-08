@@ -101,11 +101,21 @@ export class SyntheticProvider implements FlightPriceProvider {
     const count = 3 + Math.floor(this.rand(`n|${q.destination}|${q.month}|${dayKey}`) * 5);
     for (let i = 0; i < count; i++) {
       const key = `q|${q.destination}|${q.month}|${dayKey}|${i}`;
-      const departDay = 1 + Math.floor(this.rand(`${key}|d`) * 26);
-      const nights = 4 + Math.floor(this.rand(`${key}|nts`) * 6);
       const noise = 0.9 + this.rand(`${key}|p`) * 0.25;
-      const depart = new Date(Date.UTC(Number(q.month.slice(0, 4)), monthNum - 1, departDay));
-      const ret = new Date(depart.getTime() + nights * 86_400_000);
+      // Mirror the real provider: when exact dates are given (an Explore
+      // candidate), every quote is for THAT date pair — differing only by
+      // flight (price/stops/carrier). Otherwise sample a date within the month.
+      let depart: Date;
+      let ret: Date;
+      if (q.departDate && q.returnDate) {
+        depart = new Date(`${q.departDate}T00:00:00Z`);
+        ret = new Date(`${q.returnDate}T00:00:00Z`);
+      } else {
+        const departDay = 1 + Math.floor(this.rand(`${key}|d`) * 26);
+        const nights = 4 + Math.floor(this.rand(`${key}|nts`) * 6);
+        depart = new Date(Date.UTC(Number(q.month.slice(0, 4)), monthNum - 1, departDay));
+        ret = new Date(depart.getTime() + nights * 86_400_000);
+      }
       const stops = this.rand(`${key}|s`) < 0.25 ? 0 : 1;
       // Rough synthetic timings: ~3h per hop plus each layover.
       const layovers =

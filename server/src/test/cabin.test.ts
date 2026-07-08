@@ -89,18 +89,18 @@ describe('cabin isolation', () => {
     expect(biz?.baselinePriceCents).toBe(400000);
 
     // The feed only shows monitored cabins.
-    expect(activeDealsWithPlace(db, 'mock', ['economy']).map((d) => d.cabin)).toEqual(['economy']);
+    expect(activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).map((d) => d.cabin)).toEqual(['economy']);
     expect(
-      activeDealsWithPlace(db, 'mock', ['economy', 'business']).map((d) => d.cabin).sort(),
+      activeDealsWithPlace(db, 'mock', ['economy', 'business'], ['weekend', 'one_week', 'two_weeks']).map((d) => d.cabin).sort(),
     ).toEqual(['business', 'economy']);
-    expect(activeDealsWithPlace(db, 'mock', [])).toHaveLength(0);
+    expect(activeDealsWithPlace(db, 'mock', [], ['weekend', 'one_week', 'two_weeks'])).toHaveLength(0);
   });
 
   it('counts distinct (cabin, trip type) combos with a Google baseline', () => {
     const db = openDb(':memory:');
     seedCombo(db, 'economy', 62000, 100000);
     seedCombo(db, 'business', 250000, 400000);
-    expect(combosWithBaseline(db, 'mock', 'ABQ')).toBe(2);
+    expect(combosWithBaseline(db, 'mock', 'ABQ', ['economy', 'business'], ['weekend', 'one_week', 'two_weeks'])).toBe(2);
   });
 });
 
@@ -162,9 +162,15 @@ describe('trip-type isolation', () => {
     expect(wknd?.id).not.toBe(week?.id); // two rows, not one overwriting the other
 
     // Both surface on the feed as separate deals to the same city.
-    const deals = activeDealsWithPlace(db, 'mock', ['economy']).filter((d) => d.destination === 'NAP');
+    const deals = activeDealsWithPlace(db, 'mock', ['economy'], ['weekend', 'one_week', 'two_weeks']).filter((d) => d.destination === 'NAP');
     expect(deals).toHaveLength(2);
     expect(deals.map((d) => d.tripType).sort()).toEqual(['one_week', 'weekend']);
+
+    // De-selecting a trip type hides its deals (symmetric with cabin filtering).
+    expect(activeDealsWithPlace(db, 'mock', ['economy'], ['one_week']).map((d) => d.tripType)).toEqual([
+      'one_week',
+    ]);
+    expect(activeDealsWithPlace(db, 'mock', ['economy'], [])).toHaveLength(0);
   });
 
   it('scans every monitored trip type in one batch, keying deals per trip type', async () => {

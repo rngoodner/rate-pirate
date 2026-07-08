@@ -323,18 +323,26 @@ export function expireDealsNotSeen(
 
 export type DealWithPlace = DealRow;
 
-/** Active deals for the given source, restricted to the given cabins (the feed
- *  only shows cabins the user currently monitors). Empty `cabins` → no deals. */
-export function activeDealsWithPlace(db: Db, source: string, cabins: Cabin[]): DealWithPlace[] {
-  if (cabins.length === 0) return [];
-  const placeholders = cabins.map(() => '?').join(', ');
+/** Active deals for the given source, restricted to the cabins AND trip types
+ *  the user currently monitors (the feed hides deals for either dimension the
+ *  user de-selected — until the next scan expires them). Empty set → no deals. */
+export function activeDealsWithPlace(
+  db: Db,
+  source: string,
+  cabins: Cabin[],
+  tripTypes: TripType[],
+): DealWithPlace[] {
+  if (cabins.length === 0 || tripTypes.length === 0) return [];
+  const cabinPh = cabins.map(() => '?').join(', ');
+  const tripPh = tripTypes.map(() => '?').join(', ');
   return db
     .prepare(
       `SELECT ${dealCols} FROM deals
-       WHERE source = ? AND status = 'active' AND cabin IN (${placeholders})
+       WHERE source = ? AND status = 'active'
+         AND cabin IN (${cabinPh}) AND trip_type IN (${tripPh})
        ORDER BY score DESC, discount_pct DESC`,
     )
-    .all(source, ...cabins) as DealWithPlace[];
+    .all(source, ...cabins, ...tripTypes) as DealWithPlace[];
 }
 
 export function getDealWithPlace(db: Db, id: number): DealWithPlace | null {
@@ -421,19 +429,30 @@ export function dailyMinimaSeries(
   }[];
 }
 
-/** Distinct (cabin, trip_type) search combos that have produced Google insights
- *  — the status page's "baseline coverage" numerator (how many of the monitored
- *  Explore searches are returning scoreable data). */
-export function combosWithBaseline(db: Db, source: string, origin: string): number {
+/** Distinct MONITORED (cabin, trip_type) search combos that have produced Google
+ *  insights — the status page's "baseline coverage" numerator. Restricted to the
+ *  currently-monitored cabins/trip types so leftover insights from de-selected
+ *  combos can't inflate coverage past what's actually being scanned. */
+export function combosWithBaseline(
+  db: Db,
+  source: string,
+  origin: string,
+  cabins: Cabin[],
+  tripTypes: TripType[],
+): number {
+  if (cabins.length === 0 || tripTypes.length === 0) return 0;
+  const cabinPh = cabins.map(() => '?').join(', ');
+  const tripPh = tripTypes.map(() => '?').join(', ');
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM (
          SELECT cabin, trip_type FROM price_insights
          WHERE source = ? AND origin = ?
+           AND cabin IN (${cabinPh}) AND trip_type IN (${tripPh})
          GROUP BY cabin, trip_type
        )`,
     )
-    .get(source, origin) as { n: number };
+    .get(source, origin, ...cabins, ...tripTypes) as { n: number };
   return row.n;
 }
 
@@ -478,7 +497,11 @@ export function upsertPriceInsights(
     key.tripType,
     insights.level,
     medianCents,
-    insights.history ? JSON.stringify(insights.history.map((p) => [p.date, p.priceCents])) : null,
+    // Treat an empty history like no history (store NULL), so the COALESCE above
+    // preserves an earlier good series instead of overwriting it with '[]'.
+    insights.history && insights.history.length
+      ? JSON.stringify(insights.history.map((p) => [p.date, p.priceCents]))
+      : null,
     insights.capturedAt,
   );
 }
@@ -649,6 +672,22 @@ export function pruneEvents(db: Db, olderThanDays: number): number {
   return db
     .prepare(`DELETE FROM app_events WHERE created_at < datetime('now', '-' || ? || ' days')`)
     .run(olderThanDays).changes;
+}
+
+/** Wipe captured price history for a source and retire its active deals. Used
+ *  when a setting that rescales every price (party size) changes: old snapshots
+ *  and Google medians are for the wrong party size, so keeping them would score
+ *  a smaller-party fare against a larger-party baseline (a phantom deep discount
+ *  + false alert). Everything rebuilds cleanly on the next scan. */
+export function resetPriceHistory(db: Db, source: string): { deals: number; snapshots: number } {
+  return db.transaction(() => {
+    const deals = db
+      .prepare(`UPDATE deals SET status = 'expired' WHERE source = ? AND status = 'active'`)
+      .run(source).changes;
+    const snapshots = db.prepare(`DELETE FROM price_snapshots WHERE source = ?`).run(source).changes;
+    db.prepare(`DELETE FROM price_insights WHERE source = ?`).run(source);
+    return { deals, snapshots };
+  })();
 }
 
 /** Remove all demo/mock artifacts. Called on boot when a real provider is

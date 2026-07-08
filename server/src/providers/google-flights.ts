@@ -87,12 +87,13 @@ export function parseResultLabel(
   return { priceUsd: Number(price[1]!.replaceAll(',', '')), stops, carrier, durationMinutes, layovers };
 }
 
-/** "16 hr 5 min" / "22 hr" / "45 min" / "overnight 9 hr 15 min" → total minutes
- *  (null if neither hours nor minutes are present). */
+/** "16 hr 5 min" / "22 hr" / "45 min" / "1 day 4 hr 30 min" / "overnight 9 hr
+ *  15 min" → total minutes (null if no day/hour/minute component is present). */
 function hoursMinsToMinutes(s: string): number | null {
+  const day = Number(s.match(/(\d+)\s*day/)?.[1] ?? 0);
   const hr = Number(s.match(/(\d+)\s*hr/)?.[1] ?? 0);
   const min = Number(s.match(/(\d+)\s*min/)?.[1] ?? 0);
-  const total = hr * 60 + min;
+  const total = day * 1440 + hr * 60 + min;
   return total > 0 ? total : null;
 }
 
@@ -259,32 +260,43 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
    *  the scanner via `monthQuotes` with the returned exact dates. */
   async exploreSearch(q: ExploreQuery): Promise<ExploreDestination[]> {
     await this.throttle();
+    // Hold the idle-close timer for the whole call; pair inFlight++ with the
+    // finally so a newPage() throw can't leak the counter (which would pin the
+    // browser open forever — scheduleIdleClose early-returns while inFlight>0).
     this.inFlight++;
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
     }
-    const page = await (await this.getBrowser()).newPage();
-    let rpc = '';
-    page.on('response', (r) => {
-      if (rpc || r.request().method() !== 'POST' || !/FlightsFrontendUi\/data/.test(r.url())) return;
-      void r
-        .text()
-        .then((t) => {
-          if (t.length > 20_000 && !rpc) rpc = t;
-        })
-        .catch(() => {});
-    });
     const route = `${q.origin} ${q.tripType} ${q.cabin}`;
+    let page: Page | null = null;
     try {
+      page = await (await this.getBrowser()).newPage();
+      let rpc = '';
+      page.on('response', (r) => {
+        if (rpc || r.request().method() !== 'POST' || !/FlightsFrontendUi\/data/.test(r.url())) return;
+        void r
+          .text()
+          .then((t) => {
+            if (t.length > 20_000 && !rpc) rpc = t;
+          })
+          .catch(() => {});
+      });
       await page.setUserAgent(USER_AGENT);
       await page.setViewport({ width: 1280, height: 1000 });
       await page.goto(exploreUrl(q.origin, q.cabin, q.tripType, q.adults), {
         waitUntil: 'networkidle2',
         timeout: RESULT_TIMEOUT_MS,
       });
+      if (page.url().includes('consent.google.com')) {
+        throw new ProviderError('google consent wall — needs manual attention');
+      }
       // The RPC usually lands during load; give it a moment if not.
       for (let i = 0; i < 20 && !rpc; i++) await new Promise((r) => setTimeout(r, 300));
+      // No RPC captured at all → the capture failed (format change, interstitial,
+      // block). Surface it as an error rather than a silent empty result, so the
+      // scanner logs it and scansBroken can trip.
+      if (!rpc) throw new ProviderError(`explore RPC not captured for ${route}`);
       const dests = parseExploreRpc(rpc);
       this.onCall?.({ endpoint: 'explore', route, status: 200, ok: true });
       return dests;
@@ -292,7 +304,7 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
       this.onCall?.({ endpoint: 'explore', route, ok: false });
       throw err instanceof ProviderError ? err : new ProviderError(`explore failed for ${route}: ${err}`);
     } finally {
-      await page.close().catch(() => {});
+      if (page) await page.close().catch(() => {});
       this.inFlight--;
       this.scheduleIdleClose();
     }

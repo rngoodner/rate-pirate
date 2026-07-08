@@ -133,7 +133,7 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   // (`cabin|tripType|destination`), so budget spent discovering NEW candidates
   // can never starve verification of deals already on the feed.
   const shownByCombo = new Map<string, Set<string>>();
-  for (const d of activeDealsWithPlace(db, provider.name, settings.monitoredCabins)) {
+  for (const d of activeDealsWithPlace(db, provider.name, settings.monitoredCabins, settings.tripTypes)) {
     const k = `${d.cabin}|${d.tripType}`;
     let set = shownByCombo.get(k);
     if (!set) shownByCombo.set(k, (set = new Set()));
@@ -197,9 +197,12 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
           cabin,
           tripType,
         };
-        scoredKeys.add(`${cabin}|${tripType}|${d.iata}`); // attempted this batch
         try {
           const r = await scanCandidate(deps, cand, d, now, settings.adults);
+          // Mark re-priced only on success: a throwing scan leaves this deal out
+          // of scoredKeys so the verify pass retries it (rather than freezing it
+          // at a stale price because its combo happened to run).
+          scoredKeys.add(`${cabin}|${tripType}|${d.iata}`);
           scanned++;
           snapshots += r.snapshots;
           const tally = byCabin.get(cabin) ?? { scanned: 0, snapshots: 0 };
@@ -373,7 +376,7 @@ async function verifyShownDeals(
   budgetLeft: () => number,
 ): Promise<{ verified: number; dropped: number; snapshots: number; failures: number }> {
   const { db, provider } = deps;
-  const toVerify = activeDealsWithPlace(db, provider.name, settings.monitoredCabins).filter(
+  const toVerify = activeDealsWithPlace(db, provider.name, settings.monitoredCabins, settings.tripTypes).filter(
     (d) => !scoredKeys.has(`${d.cabin}|${d.tripType}|${d.destination}`),
   );
   let verified = 0;
@@ -434,10 +437,21 @@ export async function runDealVerification(deps: ScanDeps): Promise<VerifyResult>
     const virtualClock = deps.now !== undefined;
     const now = deps.now ?? (() => new Date());
     const settings = getSettings(db, config);
+    // Sweep past-month / departed / out-of-universe deals first (as a batch does),
+    // so we don't waste a scrape re-pricing a deal that should simply be expired.
+    const calRef = calendarRef(now(), virtualClock);
+    expireDealsBeforeMonth(db, calRef.toISOString().slice(0, 7));
+    expireDealsOutsideUniverse(db, {
+      source: provider.name,
+      origin: settings.homeAirport,
+      today: calRef.toISOString().slice(0, 10),
+      cabins: settings.monitoredCabins,
+      tripTypes: settings.tripTypes,
+    });
     const budgetLeft = () =>
       settings.dailyCallBudget - apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
     if (budgetLeft() <= 0) return { verified: 0, dropped: 0, skippedReason: 'budget_exhausted' };
-    // Empty scannedCombos → verify every shown deal.
+    // Empty scoredKeys → verify every shown deal.
     const { verified, dropped } = await verifyShownDeals(deps, settings, now, new Set(), budgetLeft);
     return { verified, dropped };
   } finally {

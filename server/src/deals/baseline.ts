@@ -13,7 +13,9 @@ export interface Baseline {
  *  the exact trip, so a deal can be scored from day one. Returns null until a
  *  series (or at least a median) has been captured. */
 export function computeBaseline(insights?: PriceInsightsRow | null): Baseline | null {
-  if (insights?.medianCents != null) {
+  // A non-positive median is never a real fare — reject it so scoreDeal can't
+  // divide by zero (discountPct = (baseline-current)/baseline).
+  if (insights?.medianCents != null && insights.medianCents > 0) {
     return { baselineCents: insights.medianCents, kind: 'google' };
   }
   return null;
