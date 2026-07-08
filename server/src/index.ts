@@ -2,9 +2,11 @@ import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { openDb } from './db/db.js';
-import { purgeMockData } from './db/repo.js';
+import { activeDealsWithPlace, logEvent, purgeMockData } from './db/repo.js';
 import { getSettings } from './db/settings.js';
 import { startScheduler } from './scanner/scheduler.js';
+import { calendarRef, sqliteStamp } from './scanner/scan.js';
+import { reevaluateDeals } from './deals/detect.js';
 import { createProvider } from './providers/index.js';
 import { createEmailSender } from './alerts/email.js';
 import { createOnQuotes } from './pipeline.js';
@@ -33,6 +35,33 @@ if (provider.name === 'mock') {
 } else {
   const removed = purgeMockData(db);
   if (removed > 0) console.log(`live mode: purged ${removed} mock rows (demo data)`);
+}
+
+// Warm start / recovery: re-derive the active feed from stored snapshots and
+// baselines (no scraping) so a restart shows deals immediately instead of
+// waiting for the first scan — and so deals left expired by a prior run (e.g.
+// after a party-size change that outran its rescan) come back where the stored
+// data still supports them. Purely local; never hits a provider.
+{
+  const s = getSettings(db, config);
+  const cal = calendarRef(new Date());
+  const { combos } = reevaluateDeals(
+    db,
+    provider.name,
+    s.homeAirport,
+    s.dealMinDiscount,
+    {
+      currentMonth: cal.toISOString().slice(0, 7),
+      today: cal.toISOString().slice(0, 10),
+      cabins: s.monitoredCabins,
+      tripTypes: s.tripTypes,
+    },
+    sqliteStamp(new Date()),
+  );
+  const active = activeDealsWithPlace(db, provider.name, s.monitoredCabins, s.tripTypes).length;
+  const msg = `startup: re-derived deals from stored data — ${combos} combos, ${active} active`;
+  console.log(msg);
+  logEvent(db, { level: 'info', scope: 'system', message: msg });
 }
 
 const deps: AppDeps = {
