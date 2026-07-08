@@ -47,6 +47,7 @@ export function alertHtml(a: AlertContent): string {
     <p style="margin:12px 0 2px;font-size:26px">
       <span style="color:#9ca3af;text-decoration:line-through;font-size:18px">${usd(a.baselineCents)}</span>
       <strong> ${usd(a.priceCents)}</strong>
+      <span style="color:#6b7280;font-size:14px;font-weight:400"> for ${partyLabel(a.adults)}</span>
     </p>
     <p style="margin:0 0 12px;color:#16a34a;font-size:16px;font-weight:700">
       You save ${usd(a.baselineCents - a.priceCents)} vs the route's typical fare
@@ -70,6 +71,11 @@ export function alertHtml(a: AlertContent): string {
 
 function usd(cents: number): string {
   return `$${Math.round(cents / 100)}`;
+}
+
+/** How many travelers the quoted price covers (fares are quoted per party). */
+function partyLabel(adults: number): string {
+  return `${adults} ${adults === 1 ? 'adult' : 'adults'}`;
 }
 
 /** Friendly local time for a SQLite UTC stamp, e.g. "Jul 6, 5:16 PM MDT". */

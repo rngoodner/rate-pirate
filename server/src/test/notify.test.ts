@@ -68,6 +68,15 @@ describe('maybeAlert', () => {
     expect(sent[0]!.subject).toContain('save $350'); // baseline $1000 − price $650
   });
 
+  it('scales the emailed price by party size and labels the adult count', async () => {
+    const db = openDb(':memory:');
+    const { sender, sent } = fakeSender();
+    const party = { ...settings, adults: 2 };
+    await maybeAlert(db, makeDeal(db), party, sender, '2026-06-20 08:00:00');
+    expect(sent[0]!.subject).toContain('$1300'); // $650 × 2 adults
+    expect(sent[0]!.html).toContain('for 2 adults');
+  });
+
   it('sends to every recipient when alertEmail lists several', async () => {
     const db = openDb(':memory:');
     const { sender, sent } = fakeSender();

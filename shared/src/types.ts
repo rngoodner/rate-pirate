@@ -212,6 +212,8 @@ export interface DealDetail extends Deal {
   priceHistory: PricePoint[];
   /** Google's own current-price verdict for this trip, when captured. */
   googleLevel: 'low' | 'typical' | 'high' | null;
+  /** Party size the displayed price (and booking link) is quoted for. */
+  adults: number;
 }
 
 /** A scannable destination; `active` = included in the scan rotation. */

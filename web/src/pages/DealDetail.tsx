@@ -82,6 +82,9 @@ export default function DealDetail() {
               </span>
               <span className="block text-sm text-gray-500">Round trip • {deal.nights} nights</span>
               {detail && <span className="block text-xs text-gray-400">{detail}</span>}
+              <span className="block text-xs text-gray-400">
+                for {deal.adults} {deal.adults === 1 ? 'adult' : 'adults'}
+              </span>
             </span>
             <PriceTag priceCents={deal.bestPriceCents} baselineCents={deal.baselinePriceCents} />
           </div>
