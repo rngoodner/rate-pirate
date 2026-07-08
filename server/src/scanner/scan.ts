@@ -44,6 +44,11 @@ export interface ScanResult {
  *  check, run identical Explore searches (double-scraping Google), race the
  *  provider's browser launch, and race alert cooldowns into duplicate emails. */
 let batchInFlight = false;
+/** A universe-change rescan requested while a batch was running — run it right
+ *  after the current batch instead of dropping it on the mutex, so a scan that
+ *  started under the OLD settings (e.g. 1 adult) can't leave the feed showing
+ *  stale prices after the setting changed (e.g. to 2 adults). */
+let rescanQueued = false;
 
 /** A Date whose UTC fields equal the server's LOCAL calendar — month boundaries
  *  (deal expiry) must roll at local midnight, not UTC, which is 5–6pm in
@@ -67,6 +72,25 @@ export async function runScanBatch(
     return await runBatch(deps, batchLimit, opts);
   } finally {
     batchInFlight = false;
+    // A settings change during this batch queued a rescan — run it now, at the
+    // current settings, so the feed reflects them (not the just-finished batch's
+    // stale settings).
+    if (rescanQueued) {
+      rescanQueued = false;
+      void runScanBatch(deps).catch(() => {});
+    }
+  }
+}
+
+/** Request a full rescan after a change to the scan universe (home airport,
+ *  party size, cabins, trip types). Runs immediately if idle; if a batch is
+ *  already in flight (possibly under the old settings), it's queued to run right
+ *  after — never silently dropped by the mutex. */
+export function requestUniverseRescan(deps: ScanDeps): void {
+  if (batchInFlight) {
+    rescanQueued = true;
+  } else {
+    void runScanBatch(deps).catch(() => {});
   }
 }
 

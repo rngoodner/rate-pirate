@@ -4,7 +4,12 @@ import { activeDealsWithPlace, recentEvents } from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
 import { SyntheticProvider } from '../providers/mock.js';
-import { runDealVerification, runScanBatch, type ScanDeps } from '../scanner/scan.js';
+import {
+  requestUniverseRescan,
+  runDealVerification,
+  runScanBatch,
+  type ScanDeps,
+} from '../scanner/scan.js';
 import { createOnQuotes } from '../pipeline.js';
 import type { ExploreQuery, FlightPriceProvider, MonthQuery, MonthResult } from '../providers/types.js';
 
@@ -43,6 +48,38 @@ describe('runScanBatch guards', () => {
     expect(third.skippedReason).toBeUndefined();
     expect(third.scanned).toBe(1);
   });
+
+  it('queues a universe-change rescan when a batch is in flight (does not drop it)', async () => {
+    // A settings change mid-scan (e.g. party size 1→2) must not be lost to the
+    // batch mutex: the fresh scan has to run after the in-flight (old-settings)
+    // one, or the feed keeps showing stale prices.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const inner = new SyntheticProvider({ seed: 7 });
+    let explores = 0;
+    let secondReached!: () => void;
+    const secondDone = new Promise<void>((r) => (secondReached = r));
+    const provider: FlightPriceProvider = {
+      name: 'mock',
+      exploreSearch: async (q: ExploreQuery) => {
+        explores++;
+        if (explores === 1) await gate; // hold the first batch in flight
+        if (explores === 2) secondReached(); // the queued rescan got here
+        return inner.exploreSearch(q);
+      },
+      monthQuotes: (q: MonthQuery) => inner.monthQuotes(q),
+    };
+    const deps = makeDeps(provider);
+    updateSettings(deps.db, { monitoredCabins: ['economy'], tripTypes: ['one_week'] });
+
+    const first = runScanBatch(deps); // synchronously takes the mutex, blocks on the gate
+    requestUniverseRescan(deps); // batch in flight → must queue, not drop
+    release();
+    await first; // first batch finishes → fires the queued rescan
+    await secondDone; // deterministically confirms the rescan actually ran
+    await new Promise((r) => setTimeout(r, 50)); // let it finish (release the mutex)
+    expect(explores).toBe(2);
+  }, 30_000);
 
   it('flags a sizable all-zero-price batch as possible scraper breakage', async () => {
     const inner = new SyntheticProvider({ seed: 7 });

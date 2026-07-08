@@ -27,7 +27,13 @@ import {
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
-import { calendarRef, runDealVerification, runScanBatch, sqliteStamp } from '../scanner/scan.js';
+import {
+  calendarRef,
+  requestUniverseRescan,
+  runDealVerification,
+  runScanBatch,
+  sqliteStamp,
+} from '../scanner/scan.js';
 import { nextBatchAt } from '../scanner/scheduler.js';
 import { reevaluateDeals } from '../deals/detect.js';
 import { alertHtml, alertSubject } from '../alerts/template.js';
@@ -204,13 +210,10 @@ export function apiRoutes(deps: AppDeps): Hono {
       after.monitoredCabins.join(',') !== before.monitoredCabins.join(',') ||
       after.tripTypes.join(',') !== before.tripTypes.join(',');
     if (universeChanged && after.scanEnabled) {
-      void runScanBatch(deps).catch((err) =>
-        logEvent(db, {
-          level: 'error',
-          scope: 'scan',
-          message: `settings-triggered scan failed: ${err instanceof Error ? err.message : String(err)}`,
-        }),
-      );
+      // Queued (not dropped) if a batch is already running under the old
+      // settings — otherwise a scan mid-flight when e.g. party size changes
+      // would leave the feed showing stale (wrong-party-size) prices.
+      requestUniverseRescan(deps);
     }
     return c.json(after);
   });
