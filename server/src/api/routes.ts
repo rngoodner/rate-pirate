@@ -23,6 +23,7 @@ import {
   lastApiCallAt,
   logEvent,
   recentEvents,
+  resetDailyBudget,
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
@@ -265,6 +266,18 @@ export function apiRoutes(deps: AppDeps): Hono {
   api.post('/verify-deals', async (c) =>
     c.json(await runDealVerification(deps, { overrideBudget: c.req.query('override') === 'true' })),
   );
+
+  // Admin "reset daily budget": zero today's call count so scanning can resume
+  // within the same local day after the budget was spent. Advanced button only.
+  api.post('/reset-budget', (c) => {
+    const cleared = resetDailyBudget(db, deps.provider.name);
+    logEvent(db, {
+      level: 'info',
+      scope: 'system',
+      message: `daily budget reset — cleared ${cleared} of today's calls`,
+    });
+    return c.json({ cleared, callsToday: apiCallsToday(db, deps.provider.name) });
+  });
 
   api.post('/test-email', async (c) => {
     const sender = deps.sender;

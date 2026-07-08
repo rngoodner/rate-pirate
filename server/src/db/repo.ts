@@ -540,6 +540,19 @@ export function apiCallsToday(db: Db, provider: string, asOf?: string): number {
   return row.n;
 }
 
+/** Zero today's call count for a provider (admin "reset daily budget"): drop the
+ *  api_calls rows counted by apiCallsToday so scanning can resume within the same
+ *  local day. Mirrors apiCallsToday's local-day window so it clears exactly what
+ *  is counted. Returns how many rows were cleared. */
+export function resetDailyBudget(db: Db, provider: string): number {
+  return db
+    .prepare(
+      `DELETE FROM api_calls
+       WHERE provider = ? AND datetime(called_at, 'localtime') >= date('now', 'localtime')`,
+    )
+    .run(provider).changes;
+}
+
 export function lastApiCallAt(db: Db, provider: string): string | null {
   const row = db
     .prepare('SELECT MAX(called_at) AS latest FROM api_calls WHERE provider = ? AND ok = 1')

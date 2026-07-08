@@ -411,6 +411,7 @@ function Advanced({
   const [open, setOpen] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
   const [verifyBusy, setVerifyBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
 
   const SKIP_REASONS: Record<string, string> = {
     already_running: 'A scan is already running — see the Activity log.',
@@ -441,6 +442,25 @@ function Advanced({
       notify('Re-checking in the background — results appear in the Activity log.', true);
     } finally {
       setVerifyBusy(false);
+    }
+  }
+
+  async function resetBudget() {
+    if (
+      !window.confirm(
+        "Reset today's call count to 0? Scanning will resume immediately, and today's budget cap starts over.",
+      )
+    )
+      return;
+    setResetBusy(true);
+    try {
+      const r = await api.resetBudget();
+      notify(`Daily budget reset — cleared ${r.cleared} call${r.cleared === 1 ? '' : 's'}.`, true);
+      onScanDone();
+    } catch {
+      notify('Could not reset the daily budget — try again.', true);
+    } finally {
+      setResetBusy(false);
     }
   }
 
@@ -570,6 +590,14 @@ function Advanced({
               className="w-full rounded-xl border border-brand py-2 text-sm font-semibold text-brand active:bg-brand-pale disabled:opacity-50"
             >
               {verifyBusy ? 'Re-checking…' : 'Re-check current deals'}
+            </button>
+            <button
+              type="button"
+              disabled={scanBusy || verifyBusy || resetBusy}
+              onClick={() => resetBudget()}
+              className="w-full rounded-xl border border-gray-300 py-2 text-sm font-semibold text-gray-600 active:bg-gray-50 disabled:opacity-50"
+            >
+              {resetBusy ? 'Resetting…' : "Reset today's call budget"}
             </button>
           </div>
         </div>

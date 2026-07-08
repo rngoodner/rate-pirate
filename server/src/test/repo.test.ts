@@ -11,6 +11,7 @@ import {
   pruneSnapshots,
   recentEvents,
   recordApiCall,
+  resetDailyBudget,
   upsertDeal,
 } from '../db/repo.js';
 
@@ -86,6 +87,17 @@ describe('repo', () => {
     recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: false, status: 429 });
     recordApiCall(db, { provider: 'other', endpoint: 'x', ok: true });
     expect(apiCallsToday(db, 'google-flights')).toBe(2);
+  });
+
+  it('resets today\'s call budget for one provider only', () => {
+    const db = openDb(':memory:');
+    recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: true });
+    recordApiCall(db, { provider: 'google-flights', endpoint: 'flights-page', ok: true });
+    recordApiCall(db, { provider: 'other', endpoint: 'x', ok: true });
+    const cleared = resetDailyBudget(db, 'google-flights');
+    expect(cleared).toBe(2);
+    expect(apiCallsToday(db, 'google-flights')).toBe(0);
+    expect(apiCallsToday(db, 'other')).toBe(1); // other providers untouched
   });
 
   it('expires deals the scanner will never re-evaluate (origin, departed, cabin, trip type)', () => {

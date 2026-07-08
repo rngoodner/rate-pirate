@@ -41,6 +41,8 @@ export const api = {
     ),
   testEmail: () =>
     request<{ sent: boolean; via: string; to: string }>('/api/test-email', { method: 'POST' }),
+  resetBudget: () =>
+    request<{ cleared: number; callsToday: number }>('/api/reset-budget', { method: 'POST' }),
 };
 
 export function usd(cents: number): string {
