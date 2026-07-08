@@ -74,7 +74,8 @@ describe('maybeAlert', () => {
     const party = { ...settings, adults: 2 };
     await maybeAlert(db, makeDeal(db), party, sender, '2026-06-20 08:00:00');
     expect(sent[0]!.subject).toContain('$1300'); // $650 × 2 adults
-    expect(sent[0]!.html).toContain('for 2 adults');
+    expect(sent[0]!.subject).toContain('for 2 adults');
+    expect(sent[0]!.html).toContain('👤 2'); // passenger icon + count above the price
   });
 
   it('sends to every recipient when alertEmail lists several', async () => {
