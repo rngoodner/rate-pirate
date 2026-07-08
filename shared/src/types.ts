@@ -81,6 +81,59 @@ function base64url(bytes: number[]): string {
   return out;
 }
 
+// --- Google Flights "Explore" (Anywhere + flexible dates) ---
+// Explore returns a whole list of destinations at once for one origin + cabin +
+// trip type over the next 6 months. Reverse-engineered live: the tfs is the same
+// protobuf family as the fixed-date link. Fields: 1=28 & 2=3 & 14=2 & 19=1 are
+// constants; 3 carries the origin IATA (as from(13) and to(14)); 8=adults;
+// 9=seat/cabin; 16 is the flexible-date spec — field 1 is an all-ones "anywhere"
+// marker and field 2 is the trip-type (weekend=1, one-week=omitted, two-weeks=3).
+// Verified: building this with the bare IATA code reproduces Explore headlessly,
+// no geolocation or entity-id lookup needed.
+
+export type TripType = 'weekend' | 'one_week' | 'two_weeks';
+export const TRIP_TYPES: readonly TripType[] = ['weekend', 'one_week', 'two_weeks'];
+export const TRIP_TYPE_LABELS: Record<TripType, string> = {
+  weekend: 'Weekend',
+  one_week: '1 week',
+  two_weeks: '2 weeks',
+};
+export function isTripType(v: string): v is TripType {
+  return (TRIP_TYPES as readonly string[]).includes(v);
+}
+
+const TRIP_TYPE_CODE: Record<TripType, number | null> = {
+  weekend: 1,
+  one_week: null, // omit field 2 → Google's default (1 week)
+  two_weeks: 3,
+};
+// field 1 varint = 2^64-1, the "destination = anywhere" marker (fixed bytes since
+// JS can't hold the value): tag 0x08 + nine 0xFF + 0x01.
+const ANYWHERE_MARKER = [0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+
+/** Deterministic Google Flights Explore URL for an origin + cabin + trip type. */
+export function exploreUrl(
+  origin: string,
+  cabin: Cabin,
+  tripType: TripType,
+  adults = 1,
+): string {
+  const code = TRIP_TYPE_CODE[tripType];
+  const datespec = [...ANYWHERE_MARKER, ...(code !== null ? enumField(2, code) : [])];
+  const info = [
+    ...enumField(1, 28),
+    ...enumField(2, 3),
+    ...lenDelim(3, lenDelim(13, strField(2, origin))), // origin (from)
+    ...lenDelim(3, lenDelim(14, strField(2, origin))), // origin again; "anywhere" via the marker
+    ...enumField(8, adults),
+    ...enumField(9, SEAT_NUM[cabin]),
+    ...enumField(14, 2),
+    ...lenDelim(16, datespec),
+    ...enumField(19, 1),
+  ];
+  return `https://www.google.com/travel/explore?tfs=${base64url(info)}&hl=en&curr=USD`;
+}
+
 /** Where-to-buy deep link — Rate Pirate never books flights itself. */
 export function googleFlightsUrl(
   origin: string,
