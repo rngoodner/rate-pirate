@@ -211,8 +211,12 @@ export interface DealDetail extends Deal {
   layovers: Layover[];
   /** Deep link to book this exact fare on Google Flights. */
   googleFlightsUrl: string;
-  /** Google's ~60-day price-history series for this trip (oldest first). */
+  /** The `priceHistory` series (oldest first). */
   priceHistory: PricePoint[];
+  /** Where `priceHistory` comes from: Google's 60-day price history, or its Price
+   *  graph (fares across departure dates — premium economy, which has no history).
+   *  Null when no series was captured. Drives the sparkline caption. */
+  priceHistorySource: 'history' | 'price_graph' | null;
   /** Google's own current-price verdict for this trip, when captured. */
   googleLevel: 'low' | 'typical' | 'high' | null;
 }
@@ -269,9 +273,6 @@ export interface ScanStatus {
   lastScanAt: string | null;
   callsToday: number;
   dailyCallBudget: number;
-  /** Fraction of the monitored searches (trip type × cabin) that have returned
-   *  Google price data. */
-  baselineCoverage: number;
   activeDeals: number;
   /** Error events logged today (local day). */
   errorsToday: number;

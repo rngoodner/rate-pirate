@@ -286,7 +286,6 @@ describe('API routes', () => {
     expect(status.provider).toBe('mock');
     expect(status.dailyCallBudget).toBe(100);
     expect(status.callsToday).toBe(0);
-    expect(status.baselineCoverage).toBe(0);
     expect(status.activeDeals).toBe(0);
     // Scanning is on by default → a concrete next-batch timestamp.
     expect(status.nextBatchAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);

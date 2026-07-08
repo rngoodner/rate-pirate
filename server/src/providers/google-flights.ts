@@ -528,19 +528,23 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
    *  dollars via the axis labels — validated live: the searched date's computed
    *  price matched Google's shown price to ~0.3%. */
   private async collectPriceGraph(page: Page): Promise<{ date: string; priceCents: number }[] | null> {
-    // Open the Price graph. A plain el.click() on the control's wrapper doesn't
-    // open it; a real mouse click at its center does.
-    const box = await page.evaluate(() => {
-      const btn = [...document.querySelectorAll('button, [role="button"], a')].find(
-        (n) => n.textContent?.trim() === 'Price graph',
-      );
-      if (!btn) return null;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- DOM geometry, no dom lib in server tsconfig
-      const r = (btn as any).getBoundingClientRect();
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    });
-    if (!box) return null;
-    await page.mouse.click(box.x, box.y);
+    // Open the Price graph. Use an ElementHandle click (not a viewport-coordinate
+    // click): it scrolls the control into view first, so it still works when the
+    // button sits below the fold on a taller results page. A plain DOM el.click()
+    // on the wrapper doesn't open the panel — the handle click is a real click.
+    const handle = await page.evaluateHandle(
+      () =>
+        [...document.querySelectorAll('button, [role="button"], a')].find(
+          (n) => n.textContent?.trim() === 'Price graph',
+        ) ?? null,
+    );
+    const btn = handle.asElement();
+    if (!btn) {
+      await handle.dispose();
+      return null;
+    }
+    await btn.click();
+    await handle.dispose();
     // Wait for both the bars AND the y-axis $ labels — the geometry read needs
     // both, and they render a beat apart. Then a short settle so getBoundingClient-
     // Rect returns final laid-out positions.

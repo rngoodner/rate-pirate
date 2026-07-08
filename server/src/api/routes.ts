@@ -15,7 +15,6 @@ import {
   activeDealsWithPlace,
   apiCallsToday,
   clearEvents,
-  combosWithBaseline,
   dealFlightDetails,
   errorsToday,
   getDealWithPlace,
@@ -139,8 +138,9 @@ export function apiRoutes(deps: AppDeps): Hono {
         deal.cabin,
         adults,
       ),
-      // Stored 1-adult history scaled to the party size, like the deal's prices.
+      // Stored 1-adult series scaled to the party size, like the deal's prices.
       priceHistory: (insights?.series ?? []).map((p) => ({ ...p, priceCents: p.priceCents * adults })),
+      priceHistorySource: insights?.seriesKind ?? null,
       googleLevel: insights?.level ?? null,
     };
     return c.json(detail);
@@ -211,8 +211,6 @@ export function apiRoutes(deps: AppDeps): Hono {
 
   api.get('/status', (c) => {
     const settings = getSettings(db, config);
-    // Universe = one Explore search per (trip type × cabin).
-    const universe = settings.tripTypes.length * settings.monitoredCabins.length;
     const errors = errorsToday(db);
     const calls = apiCallsToday(db, deps.provider.name);
     // "Effectively broken": many failures relative to today's call volume, or
@@ -225,21 +223,6 @@ export function apiRoutes(deps: AppDeps): Hono {
       lastScanAt: lastApiCallAt(db, deps.provider.name),
       callsToday: calls,
       dailyCallBudget: settings.dailyCallBudget,
-      // Clamp: history can hold baselines for months beyond a freshly-shrunk
-      // horizon, which would push the ratio past 1.
-      baselineCoverage:
-        universe === 0
-          ? 0
-          : Math.min(
-              1,
-              combosWithBaseline(
-                db,
-                deps.provider.name,
-                settings.homeAirport,
-                settings.monitoredCabins,
-                settings.tripTypes,
-              ) / universe,
-            ),
       activeDeals: activeDealsWithPlace(
         db,
         deps.provider.name,

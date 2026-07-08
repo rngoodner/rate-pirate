@@ -369,33 +369,6 @@ export function dealFlightDetails(
   return { ...rest, layovers: layoversJson ? (JSON.parse(layoversJson) as Layover[]) : [] };
 }
 
-/** Distinct MONITORED (cabin, trip_type) search combos that have produced Google
- *  insights — the status page's "baseline coverage" numerator. Restricted to the
- *  currently-monitored cabins/trip types so leftover insights from de-selected
- *  combos can't inflate coverage past what's actually being scanned. */
-export function combosWithBaseline(
-  db: Db,
-  source: string,
-  origin: string,
-  cabins: Cabin[],
-  tripTypes: TripType[],
-): number {
-  if (cabins.length === 0 || tripTypes.length === 0) return 0;
-  const cabinPh = cabins.map(() => '?').join(', ');
-  const tripPh = tripTypes.map(() => '?').join(', ');
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM (
-         SELECT cabin, trip_type FROM price_insights
-         WHERE source = ? AND origin = ?
-           AND cabin IN (${cabinPh}) AND trip_type IN (${tripPh})
-         GROUP BY cabin, trip_type
-       )`,
-    )
-    .get(source, origin, ...cabins, ...tripTypes) as { n: number };
-  return row.n;
-}
-
 // --- Google price insights (baselines + sparkline) ---
 
 export interface PriceInsightsRow {

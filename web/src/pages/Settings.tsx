@@ -275,7 +275,6 @@ export default function Settings() {
             <p>
               Calls today: {status.callsToday} / {status.dailyCallBudget}
             </p>
-            <p>Baseline coverage: {Math.round(status.baselineCoverage * 100)}%</p>
             <p>Active deals: {status.activeDeals}</p>
           </div>
         )}

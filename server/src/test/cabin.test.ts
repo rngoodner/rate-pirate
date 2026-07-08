@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
 import {
   activeDealsWithPlace,
-  combosWithBaseline,
   insertSnapshot,
   latestScanSnapshots,
   upsertPriceInsights,
@@ -94,13 +93,6 @@ describe('cabin isolation', () => {
       activeDealsWithPlace(db, 'mock', ['economy', 'business'], ['weekend', 'one_week', 'two_weeks']).map((d) => d.cabin).sort(),
     ).toEqual(['business', 'economy']);
     expect(activeDealsWithPlace(db, 'mock', [], ['weekend', 'one_week', 'two_weeks'])).toHaveLength(0);
-  });
-
-  it('counts distinct (cabin, trip type) combos with a Google baseline', () => {
-    const db = openDb(':memory:');
-    seedCombo(db, 'economy', 62000, 100000);
-    seedCombo(db, 'business', 250000, 400000);
-    expect(combosWithBaseline(db, 'mock', 'ABQ', ['economy', 'business'], ['weekend', 'one_week', 'two_weeks'])).toBe(2);
   });
 });
 

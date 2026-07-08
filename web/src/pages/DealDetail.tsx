@@ -97,8 +97,11 @@ export default function DealDetail() {
         </p>
 
         <p className="mt-1 text-center text-xs text-gray-400">
-          Typical price is the median of Google’s price history for this trip. Tapping “Book” opens
-          Google Flights for this exact itinerary.
+          Typical price is the median of{' '}
+          {deal.priceHistorySource === 'price_graph'
+            ? 'Google’s Price graph (fares across departure dates)'
+            : 'Google’s price history'}{' '}
+          for this trip. Tapping “Book” opens Google Flights for this exact itinerary.
         </p>
       </div>
     </div>
