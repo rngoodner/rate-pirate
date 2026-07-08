@@ -8,6 +8,7 @@ import {
   requestUniverseRescan,
   runDealVerification,
   runScanBatch,
+  spreadAcross,
   type ScanDeps,
 } from '../scanner/scan.js';
 import { createOnQuotes } from '../pipeline.js';
@@ -17,6 +18,21 @@ function makeDeps(provider?: FlightPriceProvider): ScanDeps {
   const db = openDb(':memory:');
   return { db, config: loadConfig({}), provider: provider ?? new SyntheticProvider({ seed: 7 }) };
 }
+
+describe('spreadAcross', () => {
+  it('samples across the whole list but keeps the cheapest (index 0) first', () => {
+    const a = Array.from({ length: 16 }, (_, i) => i);
+    const out = spreadAcross(a);
+    expect([...out].sort((x, y) => x - y)).toEqual(a); // a permutation (no loss)
+    expect(out[0]).toBe(0); // cheapest still visited first
+    expect(out.slice(0, 4)).toEqual([0, 4, 8, 12]); // stride=4 → first picks span the list
+  });
+
+  it('leaves short lists untouched', () => {
+    expect(spreadAcross([1, 2, 3])).toEqual([1, 2, 3]);
+    expect(spreadAcross([])).toEqual([]);
+  });
+});
 
 describe('runScanBatch guards', () => {
   it('refuses to run two batches concurrently', async () => {

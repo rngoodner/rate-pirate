@@ -59,6 +59,21 @@ export function calendarRef(d: Date, virtualClock = false): Date {
   return virtualClock ? d : new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
 }
 
+/** Reorder a cheapest-first list so a budget-limited prefix samples the WHOLE
+ *  list instead of just its (cheapest) head. Explore ranks destinations
+ *  cheapest-first, so pricing a plain prefix is all cheap/nearby; interleaving
+ *  by a ~√n stride mixes cheap, mid, and expensive (incl. deeply-discounted
+ *  long-haul) while still visiting the cheapest (index 0) first. Deterministic. */
+export function spreadAcross<T>(list: T[]): T[] {
+  if (list.length < 4) return list;
+  const stride = Math.ceil(Math.sqrt(list.length));
+  const out: T[] = [];
+  for (let off = 0; off < stride; off++) {
+    for (let i = off; i < list.length; i += stride) out.push(list[i]!);
+  }
+  return out;
+}
+
 export async function runScanBatch(
   deps: ScanDeps,
   batchLimit?: number,
@@ -223,16 +238,19 @@ async function runBatch(
       if (destinations.length === 0) continue;
       scannedCombos.add(`${cabin}|${tripType}`);
       planned += destinations.length;
-      // Front-load destinations that back a shown deal (verify before discover);
-      // the rest keep Explore's cheapest-first order (best new deals next).
+      // Re-price shown deals first (verify before discover). For the rest, spread
+      // pricing ACROSS the worldwide list rather than taking Explore's cheapest
+      // prefix — otherwise a limited budget only ever prices cheap domestic hops
+      // and the deeply-discounted international routes (further down the cheapest-
+      // first ranking) are never scored. The feed is score-ranked, so sampling
+      // broadly lets the genuinely best deals surface wherever they are.
       const shown = shownByCombo.get(`${cabin}|${tripType}`);
-      const ordered =
-        shown && shown.size
-          ? [
-              ...destinations.filter((d) => shown.has(d.iata)),
-              ...destinations.filter((d) => !shown.has(d.iata)),
-            ]
-          : destinations;
+      const ordered = shown && shown.size
+        ? [
+            ...destinations.filter((d) => shown.has(d.iata)),
+            ...spreadAcross(destinations.filter((d) => !shown.has(d.iata))),
+          ]
+        : spreadAcross(destinations);
       for (const d of ordered) {
         if (budgetLeft() <= 0 || scanned >= scoreLimit) break;
         const cand: Candidate = {
