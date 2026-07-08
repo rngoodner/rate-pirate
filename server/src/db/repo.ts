@@ -1,4 +1,4 @@
-import type { Cabin, TripType } from '@rate-pirate/shared';
+import type { Cabin, Layover, TripType } from '@rate-pirate/shared';
 import type { Db } from './db.js';
 
 export interface SnapshotInput {
@@ -14,12 +14,19 @@ export interface SnapshotInput {
   priceCents: number;
   stops: number | null;
   carrier: string | null;
+  /** Total outbound duration in minutes; optional (older/unparsed labels lack it). */
+  durationMinutes?: number | null;
+  /** Outbound layovers; optional, defaults to none. */
+  layovers?: Layover[];
   source: string;
   /** ISO timestamp override for tests/simulator; defaults to now. */
   capturedAt?: string;
 }
 
-export interface SnapshotRow extends Required<Omit<SnapshotInput, 'capturedAt'>> {
+// duration/layovers are write-only detail surfaced via recentDateOptions, not
+// part of the core snapshot row the detector reads.
+export interface SnapshotRow
+  extends Required<Omit<SnapshotInput, 'capturedAt' | 'durationMinutes' | 'layovers'>> {
   id: number;
   capturedAt: string;
 }
@@ -32,8 +39,8 @@ export function insertSnapshot(db: Db, s: SnapshotInput): void {
   db.prepare(
     `INSERT INTO price_snapshots
        (source, origin, destination, city, country, cabin, trip_type, travel_month,
-        depart_date, return_date, price_cents, stops, carrier, captured_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+        depart_date, return_date, price_cents, stops, carrier, duration_minutes, layovers, captured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
   ).run(
     s.source,
     s.origin,
@@ -48,6 +55,8 @@ export function insertSnapshot(db: Db, s: SnapshotInput): void {
     s.priceCents,
     s.stops,
     s.carrier,
+    s.durationMinutes ?? null,
+    s.layovers && s.layovers.length ? JSON.stringify(s.layovers) : null,
     s.capturedAt ?? null,
   );
 }
@@ -350,11 +359,14 @@ export function recentDateOptions(
   capturedAt: string;
   stops: number | null;
   carrier: string | null;
+  durationMinutes: number | null;
+  layovers: Layover[];
 }[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT depart_date AS departDate, return_date AS returnDate,
-              price_cents AS priceCents, captured_at AS capturedAt, stops, carrier
+              price_cents AS priceCents, captured_at AS capturedAt, stops, carrier,
+              duration_minutes AS durationMinutes, layovers AS layoversJson
        FROM (
          SELECT *, ROW_NUMBER() OVER (
            PARTITION BY depart_date, return_date ORDER BY captured_at DESC
@@ -374,7 +386,13 @@ export function recentDateOptions(
     capturedAt: string;
     stops: number | null;
     carrier: string | null;
+    durationMinutes: number | null;
+    layoversJson: string | null;
   }[];
+  return rows.map(({ layoversJson, ...r }) => ({
+    ...r,
+    layovers: layoversJson ? (JSON.parse(layoversJson) as Layover[]) : [],
+  }));
 }
 
 /** Daily-minimum price series for one combo — the deal page's sparkline (when

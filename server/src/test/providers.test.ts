@@ -35,6 +35,10 @@ describe('SyntheticProvider', () => {
         (Date.parse(quote.returnDate) - Date.parse(quote.departDate)) / 86_400_000;
       expect(nights).toBeGreaterThanOrEqual(4);
       expect(nights).toBeLessThanOrEqual(9);
+      // Flight detail is synthesized: a positive duration, and layovers iff it has stops.
+      expect(quote.durationMinutes).toBeGreaterThan(0);
+      expect(quote.layovers).toHaveLength(quote.stops === 0 ? 0 : quote.stops);
+      for (const l of quote.layovers) expect(l.airport.length).toBeGreaterThan(0);
     }
   });
 

@@ -58,12 +58,12 @@ describe('API routes', () => {
   it('GET /api/deals/:id returns the deal with date options and booking links', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);
-    for (const [tripType, depart, ret, price, stops, carrier] of [
-      ['one_week', '2099-08-18', '2099-08-26', 65000, 0, 'Delta'],
-      ['one_week', '2099-08-04', '2099-08-11', 88000, 1, 'United'],
+    for (const [tripType, depart, ret, price, stops, carrier, duration, layovers] of [
+      ['one_week', '2099-08-18', '2099-08-26', 65000, 0, 'Delta', 140, []],
+      ['one_week', '2099-08-04', '2099-08-11', 88000, 1, 'United', 965, [{ airport: 'Atlanta', minutes: 211 }]],
       // A different trip type — must NOT appear: the fare page is the detailed
       // view of a single fare, scoped to its own (cabin, trip type).
-      ['two_weeks', '2099-09-05', '2099-09-19', 40000, 1, 'KL'],
+      ['two_weeks', '2099-09-05', '2099-09-19', 40000, 1, 'KL', 1200, [{ airport: 'Paris', minutes: 90 }]],
     ] as const) {
       insertSnapshot(db, {
         origin: 'ABQ',
@@ -78,6 +78,8 @@ describe('API routes', () => {
         priceCents: price,
         stops,
         carrier,
+        durationMinutes: duration,
+        layovers: [...layovers],
         source: 'mock',
       });
     }
@@ -94,12 +96,20 @@ describe('API routes', () => {
     const detail = (await res.json()) as DealDetail;
     expect(detail.city).toBe('Naples');
     expect(detail.dateOptions).toHaveLength(2);
-    // Cheapest first, carrying the flight detail we captured.
+    // Cheapest first, carrying the flight detail we captured (duration nonstop).
     expect(detail.dateOptions[0]).toMatchObject({
       priceCents: 65000,
       nights: 8,
       stops: 0,
       carrier: 'Delta',
+      durationMinutes: 140,
+      layovers: [],
+    });
+    // Layovers round-trip through the JSON column on the pricier option.
+    expect(detail.dateOptions[1]).toMatchObject({
+      priceCents: 88000,
+      durationMinutes: 965,
+      layovers: [{ airport: 'Atlanta', minutes: 211 }],
     });
     expect(detail.dateOptions[0]!.googleFlightsUrl).toContain('google.com/travel/flights');
     // Google's own verdict surfaces on the page.

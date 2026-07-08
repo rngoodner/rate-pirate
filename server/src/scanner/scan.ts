@@ -316,6 +316,8 @@ async function scanCandidate(
       priceCents: q.priceCents,
       stops: q.stops,
       carrier: q.carrier,
+      durationMinutes: q.durationMinutes,
+      layovers: q.layovers,
       capturedAt,
     });
     snapshots++;

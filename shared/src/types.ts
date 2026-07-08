@@ -179,6 +179,14 @@ export interface Deal {
   baselineSource: 'observed' | 'google';
 }
 
+/** A connection on the outbound leg: where you stop and for how long. */
+export interface Layover {
+  /** City of the layover airport, e.g. 'Atlanta'. */
+  airport: string;
+  /** Layover length in minutes; null if it couldn't be parsed. */
+  minutes: number | null;
+}
+
 export interface DealDateOption {
   departDate: string;
   returnDate: string;
@@ -189,6 +197,10 @@ export interface DealDateOption {
   stops: number | null;
   /** Marketing carrier for the cheapest itinerary. */
   carrier: string | null;
+  /** Total outbound travel time in minutes; null when not captured. */
+  durationMinutes: number | null;
+  /** Outbound layovers in order; empty for a nonstop. */
+  layovers: Layover[];
   capturedAt: string;
   googleFlightsUrl: string;
 }

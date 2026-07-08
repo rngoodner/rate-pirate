@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { DealDetail as DealDetailType } from '@rate-pirate/shared';
+import type { DealDetail as DealDetailType, Layover } from '@rate-pirate/shared';
 import { TRIP_TYPE_LABELS } from '@rate-pirate/shared';
 import { api, monthLabel, shortDate, timeAgo, usd } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
@@ -87,6 +87,8 @@ export default function DealDetail() {
               nights={best.nights}
               stops={best.stops}
               carrier={best.carrier}
+              durationMinutes={best.durationMinutes}
+              layovers={best.layovers}
               priceCents={best.priceCents}
               baselineCents={best.baselinePriceCents ?? deal.baselinePriceCents}
               estimated={deal.baselineSource === 'google'}
@@ -113,6 +115,8 @@ export default function DealDetail() {
               nights={o.nights}
               stops={o.stops}
               carrier={o.carrier}
+              durationMinutes={o.durationMinutes}
+              layovers={o.layovers}
               priceCents={o.priceCents}
               baselineCents={o.baselinePriceCents ?? deal.baselinePriceCents}
               estimated={deal.baselineSource === 'google'}
@@ -161,12 +165,33 @@ function BackLink() {
   );
 }
 
-/** "Nonstop · Delta" / "1 stop · United" — omits parts we didn't capture. */
-function flightInfo(stops: number | null, carrier: string | null): string {
+/** "1h 30m" / "16h 5m" from minutes. */
+function fmtDuration(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
+}
+
+/** "16h 5m • 1 stop via Atlanta (3h 31m) · Delta" — omits parts we didn't capture. */
+function flightDetail(props: {
+  stops: number | null;
+  carrier: string | null;
+  durationMinutes: number | null;
+  layovers: Layover[];
+}): string {
   const parts: string[] = [];
-  if (stops != null) parts.push(stops === 0 ? 'Nonstop' : `${stops} stop${stops === 1 ? '' : 's'}`);
-  if (carrier) parts.push(carrier);
-  return parts.join(' · ');
+  if (props.durationMinutes != null) parts.push(fmtDuration(props.durationMinutes));
+  if (props.stops != null) {
+    if (props.stops === 0) parts.push('Nonstop');
+    else {
+      const via = props.layovers
+        .map((l) => `${l.airport}${l.minutes != null ? ` (${fmtDuration(l.minutes)})` : ''}`)
+        .join(', ');
+      parts.push(`${props.stops} stop${props.stops === 1 ? '' : 's'}${via ? ` via ${via}` : ''}`);
+    }
+  }
+  const main = parts.join(' • ');
+  return props.carrier ? `${main}${main ? ' · ' : ''}${props.carrier}` : main;
 }
 
 function OptionRow(props: {
@@ -175,20 +200,21 @@ function OptionRow(props: {
   nights: number;
   stops: number | null;
   carrier: string | null;
+  durationMinutes: number | null;
+  layovers: Layover[];
   priceCents: number;
   baselineCents: number;
   estimated?: boolean;
 }) {
-  const flight = flightInfo(props.stops, props.carrier);
+  const detail = flightDetail(props);
   return (
     <div className="flex items-center justify-between">
       <span>
         <span className="font-bold">
           {shortDate(props.departDate)} – {shortDate(props.returnDate)}
         </span>
-        <span className="block text-sm text-gray-500">
-          Round trip • {props.nights} nights{flight && ` • ${flight}`}
-        </span>
+        <span className="block text-sm text-gray-500">Round trip • {props.nights} nights</span>
+        {detail && <span className="block text-xs text-gray-400">{detail}</span>}
       </span>
       <span className="flex items-center gap-1">
         <PriceTag

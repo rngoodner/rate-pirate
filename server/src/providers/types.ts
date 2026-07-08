@@ -1,4 +1,6 @@
-import type { Cabin, TripType } from '@rate-pirate/shared';
+import type { Cabin, Layover, TripType } from '@rate-pirate/shared';
+
+export type { Layover };
 
 /** One Explore search: all destinations from an origin for a cabin + trip type
  *  over the next 6 months. Returns a ranked (cheapest-first) destination list. */
@@ -33,6 +35,10 @@ export interface RoundTripQuote {
   stops: number;
   /** Marketing airline IATA code. */
   carrier: string;
+  /** Total outbound travel time in minutes; null when not parsed. */
+  durationMinutes: number | null;
+  /** Outbound layovers in order; empty for a nonstop. */
+  layovers: Layover[];
 }
 
 export interface MonthQuery {

@@ -98,7 +98,38 @@ describe('parseResultLabel', () => {
       parseResultLabel(
         'From 885 US dollars round trip total. 1 stop flight with Delta. Leaves Albuquerque International Sunport at 7:00 AM on Tuesday, August 18 and arrives at Naples.',
       ),
-    ).toEqual({ priceUsd: 885, stops: 1, carrier: 'Delta' });
+    ).toEqual({ priceUsd: 885, stops: 1, carrier: 'Delta', durationMinutes: null, layovers: [] });
+  });
+
+  it('parses duration and layovers from a full (live-format) label', () => {
+    // Exactly the shape a real Google Flights result card emits.
+    expect(
+      parseResultLabel(
+        'From 1199 US dollars round trip total. 1 stop flight with Delta. Leaves Albuquerque International Sunport at 7:00 AM on Saturday, September 12 and arrives at Naples International Airport at 7:05 AM on Sunday, September 13. Total duration 16 hr 5 min.  Layover (1 of 1) is a 3 hr 31 min layover at Hartsfield-Jackson Atlanta International Airport in Atlanta. Select flight',
+      ),
+    ).toEqual({
+      priceUsd: 1199,
+      stops: 1,
+      carrier: 'Delta',
+      durationMinutes: 965,
+      layovers: [{ airport: 'Atlanta', minutes: 211 }],
+    });
+  });
+
+  it('parses multiple layovers, including an "overnight" one', () => {
+    const parsed = parseResultLabel(
+      'From 1450 US dollars round trip total. 2 stops flight with United. Leaves ABQ. Total duration 22 hr. Layover (1 of 2) is a 1 hr 30 min layover at Denver International Airport in Denver. Layover (2 of 2) is an overnight 9 hr 15 min layover at Frankfurt Airport in Frankfurt. Select flight',
+    );
+    expect(parsed).toEqual({
+      priceUsd: 1450,
+      stops: 2,
+      carrier: 'United',
+      durationMinutes: 1320,
+      layovers: [
+        { airport: 'Denver', minutes: 90 },
+        { airport: 'Frankfurt', minutes: 555 },
+      ],
+    });
   });
 
   it('handles nonstop, multi-carrier, and comma prices', () => {
@@ -106,12 +137,24 @@ describe('parseResultLabel', () => {
       parseResultLabel(
         'From 1,323 US dollars round trip total. Nonstop flight with United and Air Canada. Leaves at noon.',
       ),
-    ).toEqual({ priceUsd: 1323, stops: 0, carrier: 'United and Air Canada' });
+    ).toEqual({
+      priceUsd: 1323,
+      stops: 0,
+      carrier: 'United and Air Canada',
+      durationMinutes: null,
+      layovers: [],
+    });
     expect(
       parseResultLabel(
         'From 896 US dollars round trip total. 2 stops flight with American. Operated by Envoy Air as American Eagle. Leaves at 12:07 PM.',
       ),
-    ).toEqual({ priceUsd: 896, stops: 2, carrier: 'American' });
+    ).toEqual({
+      priceUsd: 896,
+      stops: 2,
+      carrier: 'American',
+      durationMinutes: null,
+      layovers: [],
+    });
   });
 
   it('rejects non-result labels', () => {

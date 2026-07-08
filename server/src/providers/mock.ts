@@ -106,6 +106,21 @@ export class SyntheticProvider implements FlightPriceProvider {
       const noise = 0.9 + this.rand(`${key}|p`) * 0.25;
       const depart = new Date(Date.UTC(Number(q.month.slice(0, 4)), monthNum - 1, departDay));
       const ret = new Date(depart.getTime() + nights * 86_400_000);
+      const stops = this.rand(`${key}|s`) < 0.25 ? 0 : 1;
+      // Rough synthetic timings: ~3h per hop plus each layover.
+      const layovers =
+        stops === 0
+          ? []
+          : [
+              {
+                airport: ['Denver', 'Dallas', 'Atlanta', 'Chicago', 'Phoenix'][
+                  Math.floor(this.rand(`${key}|lv`) * 5)
+                ]!,
+                minutes: 60 + Math.floor(this.rand(`${key}|lm`) * 180),
+              },
+            ];
+      const durationMinutes =
+        180 * (stops + 1) + layovers.reduce((s, l) => s + (l.minutes ?? 0), 0);
       quotes.push({
         origin: q.origin,
         destination: q.destination,
@@ -114,8 +129,10 @@ export class SyntheticProvider implements FlightPriceProvider {
         returnDate: ret.toISOString().slice(0, 10),
         priceCents: Math.round(base * seasonal * noise * drop * 100),
         currency: 'USD',
-        stops: this.rand(`${key}|s`) < 0.25 ? 0 : 1,
+        stops,
         carrier: ['AA', 'UA', 'DL', 'BA', 'KL'][Math.floor(this.rand(`${key}|c`) * 5)]!,
+        durationMinutes,
+        layovers,
       });
     }
     quotes.sort((a, b) => a.priceCents - b.priceCents);

@@ -90,6 +90,8 @@ async function seedDays(
               priceCents: q.priceCents,
               stops: q.stops,
               carrier: q.carrier,
+              durationMinutes: q.durationMinutes,
+              layovers: q.layovers,
               capturedAt: asOf,
             });
             snapshots++;

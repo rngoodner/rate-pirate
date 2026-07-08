@@ -17,6 +17,7 @@ import type {
   ExploreDestination,
   ExploreQuery,
   FlightPriceProvider,
+  Layover,
   MonthQuery,
   MonthResult,
   PriceInsights,
@@ -57,17 +58,42 @@ export function findChrome(configured?: string): string {
   );
 }
 
-/** "From 885 US dollars round trip total. 1 stop flight with Delta. Leaves …" */
+/** "From 885 US dollars round trip total. 1 stop flight with Delta. Leaves …
+ *  Total duration 16 hr 5 min. Layover (1 of 1) is a 3 hr 31 min layover at
+ *  Hartsfield-Jackson Atlanta International Airport in Atlanta. …" — the card
+ *  aria-label describes the outbound leg's timing, duration, and layovers. */
 export function parseResultLabel(
   label: string,
-): { priceUsd: number; stops: number; carrier: string } | null {
+): {
+  priceUsd: number;
+  stops: number;
+  carrier: string;
+  durationMinutes: number | null;
+  layovers: Layover[];
+} | null {
   const price = label.match(/^From ([\d,]+) US dollars round trip total\./);
   if (!price) return null;
   const stops = label.includes('Nonstop flight')
     ? 0
     : Number(label.match(/(\d+) stops? flight/)?.[1] ?? 1);
   const carrier = (label.match(/flight with ([^.]+?)\./)?.[1] ?? '').slice(0, 60);
-  return { priceUsd: Number(price[1]!.replaceAll(',', '')), stops, carrier };
+  const durText = label.match(/Total duration ([^.]+?)\./)?.[1] ?? '';
+  const durationMinutes = hoursMinsToMinutes(durText);
+  const layovers: Layover[] = [];
+  const re = /Layover \([^)]*\) is an? (.+?) layover at .+? in ([^.]+?)\./g;
+  for (let m = re.exec(label); m; m = re.exec(label)) {
+    layovers.push({ airport: m[2]!.trim().slice(0, 60), minutes: hoursMinsToMinutes(m[1]!) });
+  }
+  return { priceUsd: Number(price[1]!.replaceAll(',', '')), stops, carrier, durationMinutes, layovers };
+}
+
+/** "16 hr 5 min" / "22 hr" / "45 min" / "overnight 9 hr 15 min" → total minutes
+ *  (null if neither hours nor minutes are present). */
+function hoursMinsToMinutes(s: string): number | null {
+  const hr = Number(s.match(/(\d+)\s*hr/)?.[1] ?? 0);
+  const min = Number(s.match(/(\d+)\s*min/)?.[1] ?? 0);
+  const total = hr * 60 + min;
+  return total > 0 ? total : null;
 }
 
 /** Parse a Google Flights "Explore" RPC response (FlightsFrontendUi/data) into
@@ -336,6 +362,8 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
           currency: 'USD',
           stops: parsed.stops,
           carrier: parsed.carrier,
+          durationMinutes: parsed.durationMinutes,
+          layovers: parsed.layovers,
         });
         if (quotes.length >= MAX_QUOTES) break;
       }
