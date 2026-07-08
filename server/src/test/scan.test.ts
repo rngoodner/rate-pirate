@@ -103,6 +103,50 @@ describe('runScanBatch guards', () => {
     );
   }, 30_000);
 
+  it('expires a shown deal once Explore stops ranking its destination (inherent verification)', async () => {
+    const db = openDb(':memory:');
+    updateSettings(db, { dailyCallBudget: 2000, monitoredCabins: ['economy'], tripTypes: ['one_week'] });
+    const config = loadConfig({});
+    const inner = new SyntheticProvider({ seed: 3 });
+    let listCun = true;
+    let virtualNow = new Date('2026-07-05T06:00:00Z');
+    // Explore keeps returning a full, priced list every batch — but CUN drops
+    // out of the ranking on the second batch. Fares never vanish (distinct from
+    // the empty-monthQuotes path): CUN must expire because it's no longer seen.
+    const provider: FlightPriceProvider = {
+      name: 'mock',
+      exploreSearch: async (q: ExploreQuery) => {
+        const all = await inner.exploreSearch(q);
+        return listCun ? all : all.filter((d) => d.iata !== 'CUN');
+      },
+      monthQuotes: (q: MonthQuery) => inner.monthQuotes(q),
+    };
+    const deps: ScanDeps = {
+      db,
+      config,
+      provider,
+      now: () => virtualNow,
+      onQuotes: createOnQuotes(db, config, { name: 'console', send: async () => {} }, 'mock', () => virtualNow),
+    };
+
+    const cun = (await provider.exploreSearch({ origin: 'ABQ', cabin: 'economy', tripType: 'one_week', adults: 1 })).find(
+      (d) => d.iata === 'CUN',
+    )!;
+    inner.injectDrop('CUN', cun.departDate.slice(0, 7), 0.5);
+    await runScanBatch(deps);
+    expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(true);
+    const othersBefore = activeDealsWithPlace(db, 'mock', ['economy']).length;
+
+    // Next batch: CUN gone from Explore, everything else still priced.
+    listCun = false;
+    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 86_400_000);
+    await runScanBatch(deps);
+    const active = activeDealsWithPlace(db, 'mock', ['economy']);
+    expect(active.some((d) => d.destination === 'CUN')).toBe(false); // expired: no longer seen
+    expect(active.length).toBeGreaterThan(0); // the rest of the feed is untouched
+    expect(othersBefore).toBeGreaterThan(1); // sanity: Explore did return a full list
+  }, 30_000);
+
   it('enforces the budget against the LOCAL day when no virtual clock is injected', async () => {
     const deps = makeDeps();
     updateSettings(deps.db, { dailyCallBudget: 10 });

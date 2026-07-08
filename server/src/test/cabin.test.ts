@@ -12,7 +12,7 @@ import { loadConfig } from '../config.js';
 import { processCandidate } from '../deals/detect.js';
 import { SyntheticProvider } from '../providers/mock.js';
 import { runScanBatch } from '../scanner/scan.js';
-import type { Cabin } from '@rate-pirate/shared';
+import type { Cabin, TripType } from '@rate-pirate/shared';
 
 const config = loadConfig({});
 
@@ -101,6 +101,86 @@ describe('cabin isolation', () => {
     seedCombo(db, 'economy', 62000, 100000);
     seedCombo(db, 'business', 250000, 400000);
     expect(combosWithBaseline(db, 'mock', 'ABQ')).toBe(2);
+  });
+});
+
+/** Seed a fresh scan snapshot + Google baseline for a (trip type) combo on a
+ *  fixed destination/cabin, so trip types can be scored independently. */
+function seedTripCombo(
+  db: ReturnType<typeof openDb>,
+  tripType: TripType,
+  currentCents: number,
+  baselineCents: number,
+  departDate: string,
+) {
+  upsertPriceInsights(
+    db,
+    { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy', tripType },
+    { level: 'typical', history: [{ date: '2026-06-01', priceCents: baselineCents }], capturedAt: '2026-06-19 12:00:00' },
+  );
+  insertSnapshot(db, {
+    origin: 'ABQ',
+    destination: 'NAP',
+    city: 'Naples',
+    country: 'Italy',
+    cabin: 'economy',
+    tripType,
+    travelMonth: departDate.slice(0, 7),
+    departDate,
+    returnDate: departDate,
+    priceCents: currentCents,
+    stops: 1,
+    carrier: 'AA',
+    source: 'mock',
+    capturedAt: '2026-06-20 08:00:00',
+  });
+}
+
+describe('trip-type isolation', () => {
+  it('keeps weekend and 1-week as two independent deals on the same route/cabin', () => {
+    const db = openDb(':memory:');
+    // Same destination + cabin, different trip shapes → distinct deal rows keyed
+    // by (source, origin, destination, cabin, trip_type).
+    seedTripCombo(db, 'weekend', 55000, 90000, '2026-08-08');
+    seedTripCombo(db, 'one_week', 62000, 100000, '2026-08-10');
+    const cand = (tripType: TripType) => ({
+      source: 'mock',
+      origin: 'ABQ',
+      destination: 'NAP',
+      city: 'Naples',
+      country: 'Italy',
+      cabin: 'economy' as const,
+      tripType,
+    });
+
+    const wknd = processCandidate(db, cand('weekend'), '2026-06-20 08:00:00');
+    const week = processCandidate(db, cand('one_week'), '2026-06-20 08:00:00');
+    expect(wknd?.tripType).toBe('weekend');
+    expect(wknd?.bestPriceCents).toBe(55000);
+    expect(week?.tripType).toBe('one_week');
+    expect(week?.bestPriceCents).toBe(62000);
+    expect(wknd?.id).not.toBe(week?.id); // two rows, not one overwriting the other
+
+    // Both surface on the feed as separate deals to the same city.
+    const deals = activeDealsWithPlace(db, 'mock', ['economy']).filter((d) => d.destination === 'NAP');
+    expect(deals).toHaveLength(2);
+    expect(deals.map((d) => d.tripType).sort()).toEqual(['one_week', 'weekend']);
+  });
+
+  it('scans every monitored trip type in one batch, keying deals per trip type', async () => {
+    const db = openDb(':memory:');
+    updateSettings(db, {
+      monitoredCabins: ['economy'],
+      tripTypes: ['weekend', 'one_week', 'two_weeks'],
+      dailyCallBudget: 2000,
+    });
+    const provider = new SyntheticProvider({ seed: 1 });
+    await runScanBatch({ db, config, provider });
+    // Snapshots exist for all three trip types (the loop ran each combo).
+    const tripTypes = (db.prepare('SELECT DISTINCT trip_type FROM price_snapshots').all() as {
+      trip_type: string;
+    }[]).map((r) => r.trip_type).sort();
+    expect(tripTypes).toEqual(['one_week', 'two_weeks', 'weekend']);
   });
 });
 
