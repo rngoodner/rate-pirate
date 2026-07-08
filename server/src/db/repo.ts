@@ -343,11 +343,18 @@ export function recentDateOptions(
   tripType: TripType,
   sinceDays: number,
   limit: number,
-): { departDate: string; returnDate: string; priceCents: number; capturedAt: string }[] {
+): {
+  departDate: string;
+  returnDate: string;
+  priceCents: number;
+  capturedAt: string;
+  stops: number | null;
+  carrier: string | null;
+}[] {
   return db
     .prepare(
       `SELECT depart_date AS departDate, return_date AS returnDate,
-              price_cents AS priceCents, captured_at AS capturedAt
+              price_cents AS priceCents, captured_at AS capturedAt, stops, carrier
        FROM (
          SELECT *, ROW_NUMBER() OVER (
            PARTITION BY depart_date, return_date ORDER BY captured_at DESC
@@ -365,6 +372,8 @@ export function recentDateOptions(
     returnDate: string;
     priceCents: number;
     capturedAt: string;
+    stops: number | null;
+    carrier: string | null;
   }[];
 }
 

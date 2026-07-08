@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { DealDetail as DealDetailType } from '@rate-pirate/shared';
 import { TRIP_TYPE_LABELS } from '@rate-pirate/shared';
-import { api, monthLabel, shortDate, usd } from '../api/client';
+import { api, monthLabel, shortDate, timeAgo, usd } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
 import ScoreBadge from '../components/ScoreBadge';
 import PriceTag from '../components/PriceTag';
@@ -63,6 +63,8 @@ export default function DealDetail() {
           source={deal.priceHistorySource}
         />
 
+        {deal.googleLevel && <GoogleVerdict level={deal.googleLevel} />}
+
         {best ? (
           <a
             href={best.googleFlightsUrl}
@@ -83,6 +85,8 @@ export default function DealDetail() {
               departDate={best.departDate}
               returnDate={best.returnDate}
               nights={best.nights}
+              stops={best.stops}
+              carrier={best.carrier}
               priceCents={best.priceCents}
               baselineCents={best.baselinePriceCents ?? deal.baselinePriceCents}
               estimated={deal.baselineSource === 'google'}
@@ -107,6 +111,8 @@ export default function DealDetail() {
               departDate={o.departDate}
               returnDate={o.returnDate}
               nights={o.nights}
+              stops={o.stops}
+              carrier={o.carrier}
               priceCents={o.priceCents}
               baselineCents={o.baselinePriceCents ?? deal.baselinePriceCents}
               estimated={deal.baselineSource === 'google'}
@@ -114,7 +120,11 @@ export default function DealDetail() {
           </a>
         ))}
 
-        <p className="mt-2 text-center text-xs text-gray-400">
+        <p className="mt-1 text-center text-xs text-gray-400">
+          First spotted {timeAgo(deal.firstSeenAt)} • last seen {timeAgo(deal.lastSeenAt)}
+        </p>
+
+        <p className="mt-1 text-center text-xs text-gray-400">
           Prices are indicative, from recently observed fares. Tapping an option opens Google
           Flights to book.
           {deal.baselineSource === 'google' &&
@@ -122,6 +132,20 @@ export default function DealDetail() {
         </p>
       </div>
     </div>
+  );
+}
+
+/** Google's own current-price verdict for this trip, surfaced as a small badge. */
+function GoogleVerdict({ level }: { level: 'low' | 'typical' | 'high' }) {
+  const style = {
+    low: { cls: 'bg-green-50 text-green-700', text: 'low right now' },
+    typical: { cls: 'bg-gray-100 text-gray-600', text: 'typical right now' },
+    high: { cls: 'bg-amber-50 text-amber-700', text: 'high right now' },
+  }[level];
+  return (
+    <p className={`rounded-xl px-3 py-2 text-sm font-semibold ${style.cls}`}>
+      Google says prices are {style.text}
+    </p>
   );
 }
 
@@ -137,14 +161,25 @@ function BackLink() {
   );
 }
 
+/** "Nonstop · Delta" / "1 stop · United" — omits parts we didn't capture. */
+function flightInfo(stops: number | null, carrier: string | null): string {
+  const parts: string[] = [];
+  if (stops != null) parts.push(stops === 0 ? 'Nonstop' : `${stops} stop${stops === 1 ? '' : 's'}`);
+  if (carrier) parts.push(carrier);
+  return parts.join(' · ');
+}
+
 function OptionRow(props: {
   departDate: string;
   returnDate: string;
   nights: number;
+  stops: number | null;
+  carrier: string | null;
   priceCents: number;
   baselineCents: number;
   estimated?: boolean;
 }) {
+  const flight = flightInfo(props.stops, props.carrier);
   return (
     <div className="flex items-center justify-between">
       <span>
@@ -152,7 +187,7 @@ function OptionRow(props: {
           {shortDate(props.departDate)} – {shortDate(props.returnDate)}
         </span>
         <span className="block text-sm text-gray-500">
-          Round trip • {props.nights} nights
+          Round trip • {props.nights} nights{flight && ` • ${flight}`}
         </span>
       </span>
       <span className="flex items-center gap-1">

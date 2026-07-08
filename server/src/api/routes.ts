@@ -122,15 +122,22 @@ export function apiRoutes(deps: AppDeps): Hono {
       deal.tripType,
       60,
     );
-    const insights =
-      observed.length < 5
-        ? getPriceInsights(db, deal.source, deal.origin, deal.destination, deal.cabin, deal.tripType)
-        : null;
+    // Fetch insights unconditionally: the series backs the early sparkline, and
+    // the level is Google's own verdict we surface on the page.
+    const insights = getPriceInsights(
+      db,
+      deal.source,
+      deal.origin,
+      deal.destination,
+      deal.cabin,
+      deal.tripType,
+    );
     const useGoogle = observed.length < 5 && (insights?.series.length ?? 0) > 0;
     const detail: DealDetail = {
       ...toWireDeal(deal),
       priceHistory: useGoogle ? insights!.series : observed,
       priceHistorySource: useGoogle ? 'google' : 'observed',
+      googleLevel: insights?.level ?? null,
       dateOptions: options.map((o) => ({
         ...o,
         nights: Math.round((Date.parse(o.returnDate) - Date.parse(o.departDate)) / 86_400_000),

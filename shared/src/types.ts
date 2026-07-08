@@ -185,6 +185,10 @@ export interface DealDateOption {
   nights: number;
   priceCents: number;
   baselinePriceCents: number | null;
+  /** Transfers on the cheapest itinerary for this date pair; 0 = nonstop. */
+  stops: number | null;
+  /** Marketing carrier for the cheapest itinerary. */
+  carrier: string | null;
   capturedAt: string;
   googleFlightsUrl: string;
 }
@@ -202,6 +206,8 @@ export interface DealDetail extends Deal {
   priceHistory: PricePoint[];
   /** Whose history the sparkline charts: ours, or Google's while ours builds. */
   priceHistorySource: 'observed' | 'google';
+  /** Google's own current-price verdict for this trip, when captured. */
+  googleLevel: 'low' | 'typical' | 'high' | null;
 }
 
 /** A scannable destination; `active` = included in the scan rotation. */

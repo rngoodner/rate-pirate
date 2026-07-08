@@ -3,7 +3,7 @@ import type { AppEvent, Deal, DealDetail, ScanStatus, Settings } from '@rate-pir
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDb } from '../db/db.js';
-import { insertSnapshot, upsertDeal } from '../db/repo.js';
+import { insertSnapshot, upsertDeal, upsertPriceInsights } from '../db/repo.js';
 import { SyntheticProvider } from '../providers/mock.js';
 import type { FlightPriceProvider } from '../providers/types.js';
 
@@ -58,12 +58,12 @@ describe('API routes', () => {
   it('GET /api/deals/:id returns the deal with date options and booking links', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);
-    for (const [tripType, depart, ret, price] of [
-      ['one_week', '2099-08-18', '2099-08-26', 65000],
-      ['one_week', '2099-08-04', '2099-08-11', 88000],
-      // A different trip type — must NOT appear among the one-week deal's date
-      // options (options are keyed by cabin + trip type now, not month).
-      ['two_weeks', '2099-09-05', '2099-09-19', 40000],
+    for (const [tripType, depart, ret, price, stops, carrier] of [
+      ['one_week', '2099-08-18', '2099-08-26', 65000, 0, 'Delta'],
+      ['one_week', '2099-08-04', '2099-08-11', 88000, 1, 'United'],
+      // A different trip type — must NOT appear: the fare page is the detailed
+      // view of a single fare, scoped to its own (cabin, trip type).
+      ['two_weeks', '2099-09-05', '2099-09-19', 40000, 1, 'KL'],
     ] as const) {
       insertSnapshot(db, {
         origin: 'ABQ',
@@ -76,23 +76,38 @@ describe('API routes', () => {
         departDate: depart,
         returnDate: ret,
         priceCents: price,
-        stops: 1,
-        carrier: 'KL',
+        stops,
+        carrier,
         source: 'mock',
       });
     }
+    // Google's verdict rides along; a level with no series must NOT flip the
+    // sparkline to google (that still needs a captured history series).
+    upsertPriceInsights(
+      db,
+      { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy', tripType: 'one_week' },
+      { level: 'low', history: null, capturedAt: '2026-06-20 08:00:00' },
+    );
 
     const res = await app.request(`/api/deals/${deal.id}`);
     expect(res.status).toBe(200);
     const detail = (await res.json()) as DealDetail;
     expect(detail.city).toBe('Naples');
     expect(detail.dateOptions).toHaveLength(2);
-    expect(detail.dateOptions[0]).toMatchObject({ priceCents: 65000, nights: 8 });
+    // Cheapest first, carrying the flight detail we captured.
+    expect(detail.dateOptions[0]).toMatchObject({
+      priceCents: 65000,
+      nights: 8,
+      stops: 0,
+      carrier: 'Delta',
+    });
     expect(detail.dateOptions[0]!.googleFlightsUrl).toContain('google.com/travel/flights');
+    // Google's own verdict surfaces on the page.
+    expect(detail.googleLevel).toBe('low');
     // Daily-minimum history rides along for the sparkline.
     expect(detail.priceHistory.length).toBeGreaterThan(0);
     expect(detail.priceHistory[0]).toMatchObject({ priceCents: expect.any(Number) });
-    expect(detail.priceHistorySource).toBe('observed'); // no insights seeded here
+    expect(detail.priceHistorySource).toBe('observed'); // level-only insight, no series
     expect(detail.baselineSource).toBe('observed');
     expect(await (await app.request('/api/deals/999')).status).toBe(404);
   });
