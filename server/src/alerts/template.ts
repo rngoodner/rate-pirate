@@ -1,6 +1,7 @@
 import {
   CABIN_LABELS,
   googleFlightsUrl,
+  scoreHeatColors,
   TRIP_TYPE_LABELS,
   type Cabin,
   type TripType,
@@ -33,6 +34,7 @@ export function alertSubject(a: AlertContent): string {
 
 export function alertHtml(a: AlertContent): string {
   const url = googleFlightsUrl(a.origin, a.destination, a.departDate, a.returnDate, a.cabin, a.adults);
+  const scoreColors = scoreHeatColors(a.score);
   return `<!doctype html>
 <body style="margin:0;padding:24px;background:#f2f3f5;font-family:-apple-system,'Segoe UI',Roboto,sans-serif">
   <div style="max-width:440px;margin:0 auto;background:#fff;border-radius:16px;padding:24px">
@@ -40,7 +42,7 @@ export function alertHtml(a: AlertContent): string {
     <p style="margin:0;font-size:22px;font-weight:800">${esc(a.city)}</p>
     <p style="margin:4px 0 12px;color:#6b7280">${esc(a.country)} • ${TRIP_TYPE_LABELS[a.tripType]} • ${monthLabel(a.travelMonth)} • ${CABIN_LABELS[a.cabin]}</p>
     <p style="margin:0 0 4px">
-      <span style="background:#e7f8ee;color:#16a34a;font-weight:700;border-radius:8px;padding:4px 10px;font-size:14px">
+      <span style="background:${scoreColors.background};color:${scoreColors.text};font-weight:700;border-radius:8px;padding:4px 10px;font-size:14px">
         ${a.score}% deal score
       </span>
     </p>
