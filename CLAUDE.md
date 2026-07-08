@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Rate Pirate is a single-user, mobile-first TypeScript web app that monitors round-trip flight prices from a home airport (default ABQ) to ~140 worldwide destinations and emails the user when a price drops far below the historical norm. It finds deals and links out to Google Flights for purchase — **no booking**. The full design (architecture, schema, scoring formulas, phases) is in `DESIGN.md`; UI reference screenshots are in `ui-samples/`.
+Rate Pirate is a single-user, mobile-first TypeScript web app that monitors round-trip flight prices from a home airport (default ABQ) to **Anywhere** and emails the user when a price drops far below the historical norm. It finds deals and links out to Google Flights for purchase — **no booking**. The full design (architecture, schema, scoring formulas, phases) is in `DESIGN.md`; UI reference screenshots are in `ui-samples/`. NOTE: `DESIGN.md` still describes the earlier curated-catalog model — the app now scans via Google Flights **Explore** (see below), so treat `DESIGN.md`'s scanning/schema sections as historical.
 
-Flight data comes from **scraping Google Flights with headless Chrome** (`server/src/providers/google-flights.ts`) — prices are parsed from result aria-labels, one throttled page load per route-month-cabin. Do not suggest Amadeus (self-service portal decommissioned July 2026) or Travelpayouts (measured ~2% ABQ-origin coverage — removed).
+Flight data comes from **scraping Google Flights with headless Chrome** (`server/src/providers/google-flights.ts`). Discovery uses **Explore** (`exploreSearch`): one search per (trip type × cabin) over the next ~6 months returns a whole ranked destination list at once (origin → Anywhere, flexible dates). The existing fixed-date scraper (`monthQuotes`, prices parsed from result aria-labels) then scores each returned destination cheapest-first for price + Google price-history + baseline. Deals/snapshots/insights key on **trip_type** (weekend / one_week / two_weeks), not travel month; baselines are Google-history-only. Do not suggest Amadeus (self-service portal decommissioned July 2026) or Travelpayouts (measured ~2% ABQ-origin coverage — removed).
 
 ## Commands
 
