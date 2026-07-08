@@ -85,6 +85,7 @@ function toWireDeal(d: DealWithPlace, adults: number): Deal {
     firstSeenAt: d.firstSeenAt,
     lastSeenAt: d.lastSeenAt,
     status: d.status,
+    adults,
   };
 }
 
@@ -138,7 +139,6 @@ export function apiRoutes(deps: AppDeps): Hono {
       // Stored 1-adult history scaled to the party size, like the deal's prices.
       priceHistory: (insights?.series ?? []).map((p) => ({ ...p, priceCents: p.priceCents * adults })),
       googleLevel: insights?.level ?? null,
-      adults,
     };
     return c.json(detail);
   });

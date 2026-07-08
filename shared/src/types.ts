@@ -176,6 +176,9 @@ export interface Deal {
   firstSeenAt: string;
   lastSeenAt: string;
   status: 'active' | 'expired';
+  /** Party size the displayed price is quoted for (prices are stored at 1 adult
+   *  and scaled by this at display time). */
+  adults: number;
 }
 
 /** A connection on the outbound leg: where you stop and for how long. */
@@ -212,8 +215,6 @@ export interface DealDetail extends Deal {
   priceHistory: PricePoint[];
   /** Google's own current-price verdict for this trip, when captured. */
   googleLevel: 'low' | 'typical' | 'high' | null;
-  /** Party size the displayed price (and booking link) is quoted for. */
-  adults: number;
 }
 
 /** A scannable destination; `active` = included in the scan rotation. */

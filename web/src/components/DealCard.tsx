@@ -5,6 +5,7 @@ import { monthLabel } from '../api/client';
 import ScoreBadge from './ScoreBadge';
 import PriceTag from './PriceTag';
 import CabinBadge from './CabinBadge';
+import PartyBadge from './PartyBadge';
 
 export default function DealCard({ deal }: { deal: Deal }) {
   return (
@@ -19,10 +20,13 @@ export default function DealCard({ deal }: { deal: Deal }) {
       <p className="text-sm text-gray-500">
         {deal.country} • {TRIP_TYPE_LABELS[deal.tripType]} • {monthLabel(deal.travelMonth)}
       </p>
-      <div className="mt-3 flex items-center justify-between">
+      <div className="mt-3 flex items-end justify-between">
         <ScoreBadge score={deal.score} />
         <span className="flex items-center gap-1">
-          <PriceTag priceCents={deal.bestPriceCents} baselineCents={deal.baselinePriceCents} />
+          <span className="flex flex-col items-end">
+            <PartyBadge adults={deal.adults} />
+            <PriceTag priceCents={deal.bestPriceCents} baselineCents={deal.baselinePriceCents} />
+          </span>
           <span className="text-gray-400">›</span>
         </span>
       </div>

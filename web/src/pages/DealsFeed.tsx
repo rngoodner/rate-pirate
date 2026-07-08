@@ -13,11 +13,6 @@ function cabinSummary(settings: Settings | null): string {
   return `${cabins.length} cabins`;
 }
 
-/** How many travelers the displayed prices cover (fares are quoted per party). */
-export function partyLabel(adults: number): string {
-  return `${adults} ${adults === 1 ? 'adult' : 'adults'}`;
-}
-
 export default function DealsFeed() {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -52,7 +47,6 @@ export default function DealsFeed() {
             </p>
             <p className="truncate text-sm text-gray-500">
               Anytime • {cabinSummary(settings)}
-              {settings && ` • ${partyLabel(settings.adults)}`}
             </p>
           </div>
           <span aria-hidden className="text-lg text-gray-400">
@@ -70,11 +64,6 @@ export default function DealsFeed() {
         {deals?.length === 0 && (
           <p className="mt-8 text-center text-gray-500">
             No deals right now — the scanner keeps watching.
-          </p>
-        )}
-        {deals && deals.length > 0 && settings && (
-          <p className="mb-2 text-xs text-gray-400">
-            Prices shown for {partyLabel(settings.adults)}.
           </p>
         )}
         <div className="flex flex-col gap-3">
