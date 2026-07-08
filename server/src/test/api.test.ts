@@ -3,7 +3,7 @@ import type { AppEvent, Deal, DealDetail, ScanStatus, Settings } from '@rate-pir
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDb } from '../db/db.js';
-import { insertSnapshot, upsertDeal, upsertPriceInsights } from '../db/repo.js';
+import { insertSnapshot, recordApiCall, upsertDeal, upsertPriceInsights } from '../db/repo.js';
 import { SyntheticProvider } from '../providers/mock.js';
 import type { FlightPriceProvider } from '../providers/types.js';
 
@@ -303,5 +303,30 @@ describe('API routes', () => {
   it('POST /api/test-email 503s without a sender and 400s without a recipient', async () => {
     const { app } = makeApp();
     expect((await app.request('/api/test-email', { method: 'POST' })).status).toBe(503);
+  });
+
+  it('POST /api/reset-budget zeroes today\'s calls without starting a scan', async () => {
+    const { app, db } = makeApp();
+    recordApiCall(db, { provider: 'mock', endpoint: 'flights-page', ok: true });
+    recordApiCall(db, { provider: 'mock', endpoint: 'flights-page', ok: true });
+    const deal = seedDeal(db, 'NAP', 90);
+
+    const before = (await (await app.request('/api/status')).json()) as ScanStatus;
+    expect(before.callsToday).toBe(2);
+
+    const res = await app.request('/api/reset-budget', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ cleared: 2, callsToday: 0 });
+
+    // No scan side effects: budget stays at 0 (a scan would immediately log
+    // calls), the existing deal is untouched, and only a 'system' reset event
+    // was logged — never a 'scan'/'batch' one.
+    const after = (await (await app.request('/api/status')).json()) as ScanStatus;
+    expect(after.callsToday).toBe(0);
+    expect(after.activeDeals).toBe(before.activeDeals);
+    const events = (await (await app.request('/api/events')).json()) as AppEvent[];
+    expect(events.some((e) => e.message.includes('daily budget reset'))).toBe(true);
+    expect(events.some((e) => e.scope === 'scan' || e.scope === 'batch')).toBe(false);
+    expect(deal.status).toBe('active');
   });
 });
