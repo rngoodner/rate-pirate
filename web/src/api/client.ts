@@ -34,6 +34,11 @@ export const api = {
       '/api/scan',
       { method: 'POST', signal: AbortSignal.timeout(8_000) },
     ),
+  verifyDeals: () =>
+    request<{ verified: number; dropped: number; skippedReason?: string }>('/api/verify-deals', {
+      method: 'POST',
+      signal: AbortSignal.timeout(8_000),
+    }),
   destinations: () => request<Destination[]>('/api/destinations'),
   setDestinationActive: (iata: string, active: boolean) =>
     request<Destination>(`/api/destinations/${iata}`, {

@@ -187,51 +187,11 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
   }
 
   // Verify the deals the feed is currently showing whose route-month this batch
-  // didn't already scan, so a fare that has since vanished is dropped (or its
-  // price refreshed) instead of lingering. The active-deal count stays small,
-  // so re-scraping them each batch is cheap. A re-scrape with fares runs normal
-  // detection (refresh or expire vs the floor); a re-scrape with NO fares expires
-  // the deal outright — the shown fare is gone.
+  // didn't already scan (below).
   const scannedKeys = new Set(tasks.map((t) => `${t.destination}|${t.month}|${t.cabin}`));
-  const horizon = new Set(horizonMonths(calRef, settings.scanHorizonMonths));
-  const toVerify = activeDealsWithPlace(db, provider.name, settings.monitoredCabins).filter(
-    (d) =>
-      horizon.has(d.travelMonth) &&
-      !scannedKeys.has(`${d.destination}|${d.travelMonth}|${d.cabin}`),
-  );
-  let verified = 0;
-  let dropped = 0;
-  for (const d of toVerify) {
-    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
-    if (spent >= settings.dailyCallBudget) break;
-    const task: RouteMonthTask = { destination: d.destination, cabin: d.cabin, month: d.travelMonth, tier: 0 };
-    try {
-      const r = await scanRouteMonth(deps, settings, task, now);
-      verified++;
-      snapshots += r.snapshots;
-      // scanRouteMonth expired it if fares vanished or recovered above the floor.
-      if (getDeal(db, d.id)?.status === 'expired') dropped++;
-    } catch (err) {
-      failures++;
-      logEvent(db, {
-        level: 'error',
-        scope: 'scan',
-        message: `verify ${settings.homeAirport}→${d.destination} ${d.travelMonth} ${d.cabin}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-        detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
-        at: sqliteStamp(now()),
-      });
-    }
-  }
-  if (verified > 0) {
-    logEvent(db, {
-      level: 'info',
-      scope: 'batch',
-      message: `verified ${verified} shown deal${verified === 1 ? '' : 's'}${dropped ? `, dropped ${dropped} no longer available` : ''}`,
-      at: sqliteStamp(now()),
-    });
-  }
+  const v = await verifyShownDeals(deps, settings, now, calRef, scannedKeys);
+  snapshots += v.snapshots;
+  failures += v.failures;
 
   logEvent(db, {
     level: 'info',
@@ -350,6 +310,90 @@ async function scanRouteMonth(
     if (existing?.status === 'active') expireDeal(db, existing.id);
   }
   return { snapshots, hadQuotes: quotes.length > 0 };
+}
+
+/** Re-scrape currently-displayed deals (active, monitored cabin, in-horizon)
+ *  whose route-month isn't in `scannedKeys`, so a fare that has since vanished
+ *  is dropped and a moved price is refreshed. Fares present → normal detection;
+ *  zero fares → scanRouteMonth expires the deal. Budget-capped; the active-deal
+ *  count is small so this is cheap. */
+async function verifyShownDeals(
+  deps: ScanDeps,
+  settings: ReturnType<typeof getSettings>,
+  now: () => Date,
+  calRef: Date,
+  scannedKeys: Set<string>,
+): Promise<{ verified: number; dropped: number; snapshots: number; failures: number }> {
+  const { db, provider } = deps;
+  const virtualClock = deps.now !== undefined;
+  const horizon = new Set(horizonMonths(calRef, settings.scanHorizonMonths));
+  const toVerify = activeDealsWithPlace(db, provider.name, settings.monitoredCabins).filter(
+    (d) =>
+      horizon.has(d.travelMonth) && !scannedKeys.has(`${d.destination}|${d.travelMonth}|${d.cabin}`),
+  );
+  let verified = 0;
+  let dropped = 0;
+  let snapshots = 0;
+  let failures = 0;
+  for (const d of toVerify) {
+    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+    if (spent >= settings.dailyCallBudget) break;
+    const task: RouteMonthTask = { destination: d.destination, cabin: d.cabin, month: d.travelMonth, tier: 0 };
+    try {
+      const r = await scanRouteMonth(deps, settings, task, now);
+      verified++;
+      snapshots += r.snapshots;
+      // scanRouteMonth expired it if fares vanished or recovered above the floor.
+      if (getDeal(db, d.id)?.status === 'expired') dropped++;
+    } catch (err) {
+      failures++;
+      logEvent(db, {
+        level: 'error',
+        scope: 'scan',
+        message: `verify ${settings.homeAirport}→${d.destination} ${d.travelMonth} ${d.cabin}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
+        at: sqliteStamp(now()),
+      });
+    }
+  }
+  if (verified > 0) {
+    logEvent(db, {
+      level: 'info',
+      scope: 'batch',
+      message: `verified ${verified} shown deal${verified === 1 ? '' : 's'}${dropped ? `, dropped ${dropped} no longer available` : ''}`,
+      at: sqliteStamp(now()),
+    });
+  }
+  return { verified, dropped, snapshots, failures };
+}
+
+export interface VerifyResult {
+  verified: number;
+  dropped: number;
+  skippedReason?: 'already_running' | 'budget_exhausted';
+}
+
+/** Re-scrape every currently-shown deal on demand (Advanced → re-check deals),
+ *  independent of a full batch. Shares the batch mutex so it can't overlap a
+ *  scan, and respects the daily budget. */
+export async function runDealVerification(deps: ScanDeps): Promise<VerifyResult> {
+  if (batchInFlight) return { verified: 0, dropped: 0, skippedReason: 'already_running' };
+  batchInFlight = true;
+  try {
+    const { db, config, provider } = deps;
+    const virtualClock = deps.now !== undefined;
+    const now = deps.now ?? (() => new Date());
+    const settings = getSettings(db, config);
+    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+    if (spent >= settings.dailyCallBudget) return { verified: 0, dropped: 0, skippedReason: 'budget_exhausted' };
+    const calRef = calendarRef(now(), virtualClock);
+    const { verified, dropped } = await verifyShownDeals(deps, settings, now, calRef, new Set());
+    return { verified, dropped };
+  } finally {
+    batchInFlight = false;
+  }
 }
 
 export function sqliteStamp(d: Date): string {

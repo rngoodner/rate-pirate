@@ -29,7 +29,7 @@ import {
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
-import { calendarRef, runScanBatch, sqliteStamp } from '../scanner/scan.js';
+import { calendarRef, runDealVerification, runScanBatch, sqliteStamp } from '../scanner/scan.js';
 import { horizonMonths } from '../scanner/planner.js';
 import { nextBatchAt } from '../scanner/scheduler.js';
 import { reevaluateDeals } from '../deals/detect.js';
@@ -247,6 +247,8 @@ export function apiRoutes(deps: AppDeps): Hono {
   api.delete('/events', (c) => c.json({ cleared: clearEvents(db) }));
 
   api.post('/scan', async (c) => c.json(await runScanBatch(deps)));
+
+  api.post('/verify-deals', async (c) => c.json(await runDealVerification(deps)));
 
   api.post('/test-email', async (c) => {
     const sender = deps.sender;

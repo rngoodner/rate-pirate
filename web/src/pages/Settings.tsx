@@ -371,12 +371,31 @@ function Advanced({
 }) {
   const [open, setOpen] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
+  const [verifyBusy, setVerifyBusy] = useState(false);
 
   const SKIP_REASONS: Record<string, string> = {
     already_running: 'A scan is already running — see the Activity log.',
     budget_exhausted: 'Daily call budget is spent; scans resume tomorrow.',
     scan_disabled: 'Scanning is turned off (toggle above).',
   };
+
+  async function verifyDeals() {
+    setVerifyBusy(true);
+    try {
+      const r = await api.verifyDeals();
+      notify(
+        r.skippedReason
+          ? (SKIP_REASONS[r.skippedReason] ?? `Skipped: ${r.skippedReason}`)
+          : `Re-checked ${r.verified} deal${r.verified === 1 ? '' : 's'}${r.dropped ? `, dropped ${r.dropped} no longer available` : ''}`,
+        true,
+      );
+      onScanDone();
+    } catch {
+      notify('Re-checking in the background — results appear in the Activity log.', true);
+    } finally {
+      setVerifyBusy(false);
+    }
+  }
 
   async function runScan() {
     setScanBusy(true);
@@ -493,19 +512,23 @@ function Advanced({
             />
           </AdvField>
 
-          <div>
+          <div className="flex flex-col gap-2">
             <button
               type="button"
-              disabled={scanBusy}
+              disabled={scanBusy || verifyBusy}
               onClick={runScan}
               className="w-full rounded-xl border border-brand py-2 text-sm font-semibold text-brand active:bg-brand-pale disabled:opacity-50"
             >
               {scanBusy ? 'Requesting…' : 'Run scan batch now'}
             </button>
-            <p className={`mt-2 ${CARD_DESC}`}>
-              Runs one batch (a quarter of the daily budget) immediately instead of waiting for
-              the next scheduled scan. Progress and results appear in the Activity log.
-            </p>
+            <button
+              type="button"
+              disabled={scanBusy || verifyBusy}
+              onClick={verifyDeals}
+              className="w-full rounded-xl border border-brand py-2 text-sm font-semibold text-brand active:bg-brand-pale disabled:opacity-50"
+            >
+              {verifyBusy ? 'Re-checking…' : 'Re-check current deals'}
+            </button>
           </div>
         </div>
       )}
