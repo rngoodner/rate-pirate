@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import {
   CABINS,
+  TRIP_TYPES,
   googleFlightsUrl,
   isEmail,
   parseRecipients,
@@ -12,10 +13,9 @@ import {
 import type { AppDeps } from '../app.js';
 import {
   activeDealsWithPlace,
-  activeDestinations,
-  allDestinations,
   apiCallsToday,
   clearEvents,
+  combosWithBaseline,
   dailyMinimaSeries,
   errorsToday,
   getDealWithPlace,
@@ -24,13 +24,10 @@ import {
   logEvent,
   recentDateOptions,
   recentEvents,
-  routeMonthsWithBaseline,
-  setDestinationActive,
   type DealWithPlace,
 } from '../db/repo.js';
 import { getSettings, updateSettings } from '../db/settings.js';
 import { calendarRef, runDealVerification, runScanBatch, sqliteStamp } from '../scanner/scan.js';
-import { horizonMonths } from '../scanner/planner.js';
 import { nextBatchAt } from '../scanner/scheduler.js';
 import { reevaluateDeals } from '../deals/detect.js';
 import { alertHtml, alertSubject } from '../alerts/template.js';
@@ -49,12 +46,14 @@ const settingsPatchSchema = z
       .array(z.enum(CABINS))
       .nonempty('select at least one cabin')
       .transform((cabins) => [...new Set(cabins)]),
+    tripTypes: z
+      .array(z.enum(TRIP_TYPES))
+      .nonempty('select at least one trip type')
+      .transform((types) => [...new Set(types)]),
+    adults: z.number().int().min(1).max(9),
     alertMinDiscount: z.number().min(0.05).max(0.5),
     dealMinDiscount: z.number().min(0.01).max(0.3),
     alertCooldownDays: z.number().int().min(1).max(30),
-    scanHorizonMonths: z.number().int().min(2).max(9),
-    tripNights: z.number().int().min(1).max(30),
-    departureDow: z.number().int().min(0).max(6),
   })
   .partial()
   .strict();
@@ -67,6 +66,7 @@ function toWireDeal(d: DealWithPlace): Deal {
     city: d.city,
     country: d.country,
     cabin: d.cabin,
+    tripType: d.tripType,
     travelMonth: d.travelMonth,
     bestPriceCents: d.bestPriceCents,
     baselinePriceCents: d.baselinePriceCents,
@@ -107,7 +107,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       deal.origin,
       deal.destination,
       deal.cabin,
-      deal.travelMonth,
+      deal.tripType,
       7,
       20,
     );
@@ -119,12 +119,12 @@ export function apiRoutes(deps: AppDeps): Hono {
       deal.origin,
       deal.destination,
       deal.cabin,
-      deal.travelMonth,
+      deal.tripType,
       60,
     );
     const insights =
       observed.length < 5
-        ? getPriceInsights(db, deal.source, deal.origin, deal.destination, deal.cabin, deal.travelMonth)
+        ? getPriceInsights(db, deal.source, deal.origin, deal.destination, deal.cabin, deal.tripType)
         : null;
     const useGoogle = observed.length < 5 && (insights?.series.length ?? 0) > 0;
     const detail: DealDetail = {
@@ -166,16 +166,16 @@ export function apiRoutes(deps: AppDeps): Hono {
     // snapshots (no scans, no alerts) instead of waiting a full scan cycle.
     if (after.dealMinDiscount !== before.dealMinDiscount) {
       const cal = calendarRef(new Date());
-      const months = horizonMonths(cal, after.scanHorizonMonths);
-      const { routeMonths } = reevaluateDeals(
+      const { combos } = reevaluateDeals(
         db,
         deps.provider.name,
         after.homeAirport,
         after.dealMinDiscount,
         {
           currentMonth: cal.toISOString().slice(0, 7),
-          lastMonth: months[months.length - 1]!,
           today: cal.toISOString().slice(0, 10),
+          cabins: after.monitoredCabins,
+          tripTypes: after.tripTypes,
         },
         sqliteStamp(new Date()),
       );
@@ -183,35 +183,16 @@ export function apiRoutes(deps: AppDeps): Hono {
       logEvent(db, {
         level: 'info',
         scope: 'system',
-        message: `feed floor changed to ${Math.round(after.dealMinDiscount * 100)}% — re-evaluated ${routeMonths} route-months, ${active} active deal${active === 1 ? '' : 's'}`,
+        message: `feed floor changed to ${Math.round(after.dealMinDiscount * 100)}% — re-evaluated ${combos} combos, ${active} active deal${active === 1 ? '' : 's'}`,
       });
     }
     return c.json(after);
   });
 
-  api.get('/destinations', (c) => c.json(allDestinations(db)));
-
-  api.put('/destinations/:iata', async (c) => {
-    const iata = c.req.param('iata').toUpperCase();
-    const body = (await c.req.json().catch(() => null)) as { active?: unknown } | null;
-    if (!body || typeof body.active !== 'boolean') {
-      return c.json({ error: 'body must be {"active": true|false}' }, 400);
-    }
-    // Keep at least one destination scannable.
-    if (!body.active && activeDestinations(db).length <= 1) {
-      return c.json({ error: 'keep at least one destination active' }, 400);
-    }
-    if (!setDestinationActive(db, iata, body.active)) {
-      return c.json({ error: 'destination not found' }, 404);
-    }
-    return c.json(allDestinations(db).find((d) => d.iata === iata));
-  });
-
   api.get('/status', (c) => {
     const settings = getSettings(db, config);
-    // Universe scales with the number of cabins actually monitored.
-    const universe =
-      activeDestinations(db).length * settings.scanHorizonMonths * settings.monitoredCabins.length;
+    // Universe = one Explore search per (trip type × cabin).
+    const universe = settings.tripTypes.length * settings.monitoredCabins.length;
     const errors = errorsToday(db);
     const calls = apiCallsToday(db, deps.provider.name);
     // "Effectively broken": many failures relative to today's call volume, or
@@ -229,11 +210,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       baselineCoverage:
         universe === 0
           ? 0
-          : Math.min(
-              1,
-              routeMonthsWithBaseline(db, deps.provider.name, settings.homeAirport, settings.monitoredCabins) /
-                universe,
-            ),
+          : Math.min(1, combosWithBaseline(db, deps.provider.name, settings.homeAirport) / universe),
       activeDeals: activeDealsWithPlace(db, deps.provider.name, settings.monitoredCabins).length,
       errorsToday: errors,
       scansBroken,

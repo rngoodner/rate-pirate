@@ -2,13 +2,11 @@
  *  provider with a virtual clock. No network, no real time. */
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
-import { apiCallsToday, latestCaptureByRouteMonth, seedDestinations } from '../db/repo.js';
+import { apiCallsToday } from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
-import { DESTINATION_CATALOG } from '../scanner/destinations.js';
 import { SyntheticProvider } from '../providers/mock.js';
 import { runScanBatch, sqliteStamp } from '../scanner/scan.js';
-import { horizonMonths } from '../scanner/planner.js';
 
 const config = loadConfig({});
 const START = Date.parse('2026-07-05T06:00:00Z');
@@ -17,8 +15,7 @@ const BATCH_HOURS = [0, 5, 11, 16]; // offsets from 06:00 → 06,11,17,22
 
 function makeSim(dailyBudget: number) {
   const db = openDb(':memory:');
-  seedDestinations(db, DESTINATION_CATALOG);
-  // Economy-only keeps the universe at destinations × 6 for these budget assertions.
+  // Economy-only + one trip type keeps the Explore universe small and stable.
   updateSettings(db, { dailyCallBudget: dailyBudget, monitoredCabins: ['economy'] });
   let virtualNow = new Date(START);
   const provider = new SyntheticProvider({ seed: 42, now: () => virtualNow });
@@ -27,6 +24,10 @@ function makeSim(dailyBudget: number) {
   return {
     db,
     provider,
+    deps,
+    setNow(d: Date) {
+      virtualNow = d;
+    },
     async runDay(day: number) {
       const results = [];
       for (const hour of BATCH_HOURS) {
@@ -36,64 +37,21 @@ function makeSim(dailyBudget: number) {
       return results;
     },
     callsOnDay(day: number) {
-      // 06:00Z start + 17h = 23:00Z — end of the same UTC day
-      return apiCallsToday(db, 'mock', sqliteStamp(new Date(START + day * DAY + 17 * 3_600_000)));
+      // 06:00Z start + 16h = 22:00Z — end of the same UTC day
+      return apiCallsToday(db, 'mock', sqliteStamp(new Date(START + day * DAY + 16 * 3_600_000)));
     },
   };
 }
 
-describe('30-day scan simulation', () => {
-  it('generous budget: whole universe scanned daily, budget never exceeded', async () => {
-    const universe = DESTINATION_CATALOG.length * 6;
-    const budget = universe + 50; // headroom: everything scannable gets scanned
+describe('scan simulation (virtual clock)', () => {
+  it('never exceeds the daily budget across a day of batches', async () => {
+    const budget = 40;
     const sim = makeSim(budget);
-
     for (let day = 0; day < 3; day++) {
       await sim.runDay(day);
       expect(sim.callsOnDay(day)).toBeLessThanOrEqual(budget);
-      expect(sim.callsOnDay(day)).toBe(universe); // nothing more to scan than the universe
     }
-    const latest = latestCaptureByRouteMonth(sim.db, 'mock', 'ABQ');
-    expect(latest.size).toBe(universe);
   }, 30_000);
-
-  it('tight budget (~universe/9 per day): budget enforced, tier-1 cycles fastest, full pass within 30 days', async () => {
-    // Scales with the catalog so adding destinations doesn't skew the cadence
-    // this test asserts (universe/9 ≈ the old 60/day at 93 destinations).
-    const budget = Math.ceil((DESTINATION_CATALOG.length * 6) / 9);
-    const sim = makeSim(budget);
-
-    for (let day = 0; day < 30; day++) {
-      await sim.runDay(day);
-      expect(sim.callsOnDay(day)).toBeLessThanOrEqual(budget);
-    }
-
-    const latest = latestCaptureByRouteMonth(sim.db, 'mock', 'ABQ');
-    const months = horizonMonths(new Date(START + 29 * DAY), 6);
-    const endOfRun = START + 30 * DAY;
-    const age = (key: string) => endOfRun - Date.parse(latest.get(key)!.replace(' ', 'T') + 'Z');
-    // Near-horizon months of every tier-1 favorite stay reasonably fresh. The
-    // exact cadence depends on the catalog's tier mix, so the absolute bound is
-    // loose; the sharp assertion is the relative one below.
-    for (const d of DESTINATION_CATALOG.filter((d) => d.tier === 1)) {
-      for (const month of months.slice(0, 2)) {
-        expect(latest.get(`${d.iata}|${month}|economy`), `${d.iata}|${month} never scanned`).toBeTruthy();
-        const a = age(`${d.iata}|${month}|economy`);
-        expect(a, `${d.iata}|${month} stale ${Math.round(a / DAY)}d`).toBeLessThanOrEqual(6 * DAY);
-      }
-    }
-    // Tier-1 near months cycle meaningfully faster than tier-3 near months.
-    const avgAge = (tier: number) => {
-      const ages = DESTINATION_CATALOG.filter((d) => d.tier === tier).flatMap((d) =>
-        months.slice(0, 2).map((m) => age(`${d.iata}|${m}|economy`)),
-      );
-      return ages.reduce((s, a) => s + a, 0) / ages.length;
-    };
-    expect(avgAge(1)).toBeLessThan(avgAge(3) * 0.7);
-    // Every route-month in the universe was scanned at least once (the run crosses
-    // into August, so a 7th month enters the horizon and the map can exceed 6/dest)
-    expect(latest.size).toBeGreaterThanOrEqual(DESTINATION_CATALOG.length * 6);
-  }, 60_000);
 
   it('scan_enabled=false skips batches entirely', async () => {
     const sim = makeSim(500);
@@ -104,19 +62,15 @@ describe('30-day scan simulation', () => {
   });
 
   it('budget exhaustion stops further batches', async () => {
-    const db = openDb(':memory:');
-    seedDestinations(db, DESTINATION_CATALOG);
-    updateSettings(db, { dailyCallBudget: 10 });
-    const virtualNow = new Date(START);
-    const provider = new SyntheticProvider({ seed: 42, now: () => virtualNow });
-    const deps = { db, config, provider, now: () => virtualNow };
+    const budget = 30;
+    const sim = makeSim(budget);
+    const first = await runScanBatch(sim.deps, 8);
+    expect(first.scanned).toBeGreaterThan(0);
 
-    const first = await runScanBatch(deps, 8);
-    expect(first.scanned).toBe(8);
-    const second = await runScanBatch(deps, 8); // only 2 left in the daily budget
-    expect(second.scanned).toBe(2);
-    const third = await runScanBatch(deps, 8);
-    expect(third.skippedReason).toBe('budget_exhausted');
-    expect(apiCallsToday(db, 'mock', sqliteStamp(virtualNow))).toBe(10);
-  });
+    // Keep hitting the same day until the budget is spent, then it must skip.
+    let last = first;
+    for (let i = 0; i < 12; i++) last = await runScanBatch(sim.deps, 8);
+    expect(last.skippedReason).toBe('budget_exhausted');
+    expect(apiCallsToday(sim.db, 'mock', sqliteStamp(new Date(START)))).toBeLessThanOrEqual(budget);
+  }, 30_000);
 });

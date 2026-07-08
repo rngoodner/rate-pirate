@@ -1,6 +1,6 @@
 import { CABIN_LABELS, parseRecipients, type Settings } from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
-import { getDestination, lastAlertForDeal, logEvent, recordAlert, type DealRow } from '../db/repo.js';
+import { lastAlertForDeal, logEvent, recordAlert, type DealRow } from '../db/repo.js';
 import type { EmailSender } from './email.js';
 import { alertHtml, alertSubject } from './template.js';
 
@@ -43,12 +43,11 @@ export async function maybeAlert(
     if (inCooldown && !deepened) return { sent: false, reason: 'cooldown' };
   }
 
-  const dest = getDestination(db, deal.destination);
   const content = {
     origin: deal.origin,
     destination: deal.destination,
-    city: dest?.city ?? deal.destination,
-    country: dest?.country ?? '',
+    city: deal.city || deal.destination,
+    country: deal.country,
     cabin: deal.cabin,
     travelMonth: deal.travelMonth,
     priceCents: deal.bestPriceCents,

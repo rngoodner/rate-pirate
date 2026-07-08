@@ -3,26 +3,33 @@ import type { AppEvent, Deal, DealDetail, ScanStatus, Settings } from '@rate-pir
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDb } from '../db/db.js';
-import { insertSnapshot, seedDestinations, upsertDeal } from '../db/repo.js';
-import { DESTINATION_CATALOG } from '../scanner/destinations.js';
+import { insertSnapshot, upsertDeal } from '../db/repo.js';
 import { SyntheticProvider } from '../providers/mock.js';
 import type { FlightPriceProvider } from '../providers/types.js';
 
 function makeApp() {
   const db = openDb(':memory:');
-  seedDestinations(db, DESTINATION_CATALOG);
   const config = loadConfig({});
   const provider = new SyntheticProvider({ seed: 1 });
   const app = createApp({ db, config, provider });
   return { app, db };
 }
 
+const PLACES: Record<string, [string, string]> = {
+  NAP: ['Naples', 'Italy'],
+  CUN: ['Cancún', 'Mexico'],
+};
+
 function seedDeal(db: ReturnType<typeof openDb>, destination: string, score: number) {
+  const [city, country] = PLACES[destination] ?? [destination, ''];
   return upsertDeal(db, {
     source: 'mock',
     origin: 'ABQ',
     destination,
+    city,
+    country,
     cabin: 'economy',
+    tripType: 'one_week',
     travelMonth: '2099-08',
     bestPriceCents: 65000,
     baselinePriceCents: 100000,
@@ -31,6 +38,7 @@ function seedDeal(db: ReturnType<typeof openDb>, destination: string, score: num
     departDate: '2099-08-18',
     returnDate: '2099-08-26',
     seenAt: '2026-06-20 08:00:00',
+    baselineSource: 'observed',
   });
 }
 
@@ -50,18 +58,21 @@ describe('API routes', () => {
   it('GET /api/deals/:id returns the deal with date options and booking links', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);
-    for (const [month, depart, ret, price] of [
-      ['2099-08', '2099-08-18', '2099-08-26', 65000],
-      ['2099-08', '2099-08-04', '2099-08-11', 88000],
-      // Cheaper, but a different travel month — must NOT appear among the
-      // date options of a 2099-08 deal.
-      ['2099-09', '2099-09-05', '2099-09-12', 40000],
+    for (const [tripType, depart, ret, price] of [
+      ['one_week', '2099-08-18', '2099-08-26', 65000],
+      ['one_week', '2099-08-04', '2099-08-11', 88000],
+      // A different trip type — must NOT appear among the one-week deal's date
+      // options (options are keyed by cabin + trip type now, not month).
+      ['two_weeks', '2099-09-05', '2099-09-19', 40000],
     ] as const) {
       insertSnapshot(db, {
         origin: 'ABQ',
         destination: 'NAP',
+        city: 'Naples',
+        country: 'Italy',
         cabin: 'economy',
-        travelMonth: month,
+        tripType,
+        travelMonth: depart.slice(0, 7),
         departDate: depart,
         returnDate: ret,
         priceCents: price,
@@ -121,21 +132,27 @@ describe('API routes', () => {
     const ok = await app.request('/api/settings', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ alertMinDiscount: 0.1, alertCooldownDays: 3, scanHorizonMonths: 4 }),
+      body: JSON.stringify({
+        alertMinDiscount: 0.1,
+        alertCooldownDays: 3,
+        tripTypes: ['weekend', 'one_week'],
+        adults: 2,
+      }),
     });
     expect(ok.status).toBe(200);
     const updated = (await ok.json()) as Settings;
     expect(updated.alertMinDiscount).toBe(0.1);
     expect(updated.alertCooldownDays).toBe(3);
-    expect(updated.scanHorizonMonths).toBe(4);
+    expect(updated.tripTypes).toEqual(['weekend', 'one_week']);
+    expect(updated.adults).toBe(2);
 
     for (const body of [
       { alertMinDiscount: 0.6 },
       { dealMinDiscount: 0.5 },
       { alertCooldownDays: 0 },
-      { scanHorizonMonths: 12 },
-      { tripNights: 0 },
-      { departureDow: 7 },
+      { adults: 99 },
+      { adults: 0 },
+      { tripTypes: [] },
     ]) {
       const bad = await app.request('/api/settings', {
         method: 'PUT',
@@ -153,16 +170,16 @@ describe('API routes', () => {
     const events = (await (await app.request('/api/events')).json()) as AppEvent[];
     expect(events.length).toBeGreaterThan(0);
     expect(events[0]).toMatchObject({ level: 'info', scope: 'batch' });
-    expect(events[0]!.message).toMatch(/route-months scanned/);
+    expect(events[0]!.message).toMatch(/candidates scored/);
     let status = (await (await app.request('/api/status')).json()) as ScanStatus;
     expect(status.errorsToday).toBe(0);
 
-    // Broken provider: every task fails → error events + errorsToday > 0.
+    // Broken provider: Explore still lists destinations, but every fixed-date
+    // fetch fails → error events + errorsToday > 0.
     const db = openDb(':memory:');
-    seedDestinations(db, DESTINATION_CATALOG);
     const broken: FlightPriceProvider = {
       name: 'mock',
-      exploreSearch: async () => [],
+      exploreSearch: (q) => new SyntheticProvider({ seed: 7 }).exploreSearch(q),
       monthQuotes: async () => {
         throw new Error('scrape blocked');
       },
@@ -177,7 +194,7 @@ describe('API routes', () => {
     expect(errs[0]!.message).toContain('scrape blocked');
     status = (await (await brokenApp.request('/api/status')).json()) as ScanStatus;
     expect(status.errorsToday).toBe(errs.length);
-    // Every task failed → the server judges scanning broken (feed shows red).
+    // Every candidate failed → the server judges scanning broken (feed shows red).
     expect(status.scansBroken).toBe(true);
 
     // Clearing the log resets the error count AND the broken judgment.
@@ -189,38 +206,6 @@ describe('API routes', () => {
     status = (await (await brokenApp.request('/api/status')).json()) as ScanStatus;
     expect(status.errorsToday).toBe(0);
     expect(status.scansBroken).toBe(false);
-  });
-
-  it('GET/PUT /api/destinations lists and toggles the scan catalog', async () => {
-    const { app } = makeApp();
-    const list = (await (await app.request('/api/destinations')).json()) as {
-      iata: string;
-      active: boolean;
-    }[];
-    expect(list.length).toBeGreaterThan(50);
-    expect(list.every((d) => d.active)).toBe(true);
-
-    const off = await app.request('/api/destinations/NAP', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ active: false }),
-    });
-    expect(off.status).toBe(200);
-    expect(((await off.json()) as { active: boolean }).active).toBe(false);
-
-    const missing = await app.request('/api/destinations/XXX', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ active: false }),
-    });
-    expect(missing.status).toBe(404);
-
-    const badBody = await app.request('/api/destinations/NAP', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ active: 'yes' }),
-    });
-    expect(badBody.status).toBe(400);
   });
 
   it('PUT /api/settings 400s carry field-level detail in error', async () => {

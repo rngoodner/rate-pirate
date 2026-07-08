@@ -92,7 +92,7 @@ function base64url(bytes: number[]): string {
 // no geolocation or entity-id lookup needed.
 
 export type TripType = 'weekend' | 'one_week' | 'two_weeks';
-export const TRIP_TYPES: readonly TripType[] = ['weekend', 'one_week', 'two_weeks'];
+export const TRIP_TYPES = ['weekend', 'one_week', 'two_weeks'] as const;
 export const TRIP_TYPE_LABELS: Record<TripType, string> = {
   weekend: 'Weekend',
   one_week: '1 week',
@@ -159,6 +159,8 @@ export interface Deal {
   city: string;
   country: string;
   cabin: Cabin;
+  /** Trip shape this deal was discovered for (weekend / 1 week / 2 weeks). */
+  tripType: TripType;
   /** Departure month bucket, 'YYYY-MM'. */
   travelMonth: string;
   bestPriceCents: number;
@@ -227,14 +229,13 @@ export interface Settings {
   /** Feed floor: a price must be this far below baseline (0..1 fraction) to
    *  count as a deal at all; deals expire back below it. */
   dealMinDiscount: number;
-  /** Days without re-alerting the same route-month (unless the price deepens). */
+  /** Days without re-alerting the same deal (unless the price deepens). */
   alertCooldownDays: number;
-  /** How many months ahead to scan; scales the scan universe. */
-  scanHorizonMonths: number;
-  /** Trip length in nights for the representative round trip we price each month. */
-  tripNights: number;
-  /** Departure weekday (0=Sun … 6=Sat); we price the 2nd such weekday of the month. */
-  departureDow: number;
+  /** Trip shapes to search on Explore (at least one): weekend / 1 week / 2 weeks.
+   *  Each selected type × cabin is one Explore search over the next ~6 months. */
+  tripTypes: TripType[];
+  /** Passenger count for every search (Explore prices per this many adults). */
+  adults: number;
 }
 
 export const WEEKDAYS = [

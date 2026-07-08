@@ -3,7 +3,6 @@ import TabBar from './components/TabBar';
 import DealsFeed from './pages/DealsFeed';
 import DealDetail from './pages/DealDetail';
 import Settings from './pages/Settings';
-import Destinations from './pages/Destinations';
 
 export default function App() {
   return (
@@ -13,7 +12,6 @@ export default function App() {
           <Route path="/" element={<DealsFeed />} />
           <Route path="/deals/:id" element={<DealDetail />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/settings/destinations" element={<Destinations />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

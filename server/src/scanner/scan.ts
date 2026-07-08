@@ -2,33 +2,23 @@ import type { Config } from '../config.js';
 import type { Db } from '../db/db.js';
 import {
   activeDealsWithPlace,
-  activeDestinations,
   apiCallsToday,
-  captureDaysForRouteMonth,
-  dormantRouteMonths,
   expireDeal,
   expireDealsBeforeMonth,
+  expireDealsNotSeen,
   expireDealsOutsideUniverse,
   getDeal,
-  getDealByRouteMonth,
+  getDealByCombo,
   insertSnapshot,
-  latestCaptureByRouteMonth,
   logEvent,
   recordApiCall,
-  recordScanOutcome,
   upsertPriceInsights,
 } from '../db/repo.js';
-import { BASELINE_WINDOWS } from '../deals/baseline.js';
-
-/** A route-month-cabin resting after this many consecutive empty scans… */
-const DORMANT_AFTER_EMPTY = 5;
-/** …re-probed this often so new/seasonal service is picked back up. */
-const REPROBE_AFTER_DAYS = 14;
 import { getSettings } from '../db/settings.js';
-import type { FlightPriceProvider, RoundTripQuote } from '../providers/types.js';
-import { horizonMonths, planBatch, type RouteMonthTask } from './planner.js';
+import type { Candidate } from '../deals/detect.js';
+import type { ExploreDestination, FlightPriceProvider } from '../providers/types.js';
 
-/** Cap snapshots stored per scan of one route-month (cheapest first). */
+/** Cap snapshots stored per fixed-date scan of one candidate (cheapest first). */
 const MAX_SNAPSHOTS_PER_SCAN = 10;
 
 export interface ScanDeps {
@@ -37,8 +27,8 @@ export interface ScanDeps {
   provider: FlightPriceProvider;
   /** Injectable clock for the simulator. */
   now?: () => Date;
-  /** Called after each successful task; deal detection + alerting hook in here. */
-  onQuotes?: (task: RouteMonthTask, quotes: RoundTripQuote[]) => void | Promise<void>;
+  /** Called after each scored candidate; deal detection + alerting hook in here. */
+  onQuotes?: (cand: Candidate) => void | Promise<void>;
 }
 
 export interface ScanResult {
@@ -51,15 +41,15 @@ export interface ScanResult {
 
 /** One batch at a time, process-wide. Overlapping batches (manual POST /api/scan
  *  during a cron batch, boot catch-up near a cron slot) would race the budget
- *  check, plan identical task lists (double-scraping Google), race the provider's
- *  browser launch, and race alert cooldowns into duplicate emails. */
+ *  check, run identical Explore searches (double-scraping Google), race the
+ *  provider's browser launch, and race alert cooldowns into duplicate emails. */
 let batchInFlight = false;
 
 /** A Date whose UTC fields equal the server's LOCAL calendar — month boundaries
- *  (deal expiry, scan horizon) must roll at local midnight, not UTC, which is
- *  5–6pm in America/Denver. Relies on the process running in the home airport's
- *  timezone (the systemd unit pins TZ=America/Denver; see deploy/). Virtual
- *  clocks (simulator) are used as-is. */
+ *  (deal expiry) must roll at local midnight, not UTC, which is 5–6pm in
+ *  America/Denver. Relies on the process running in the home airport's timezone
+ *  (the systemd unit pins TZ=America/Denver; see deploy/). Virtual clocks
+ *  (simulator) are used as-is. */
 export function calendarRef(d: Date, virtualClock = false): Date {
   return virtualClock ? d : new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
 }
@@ -84,22 +74,21 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
 
   const asOf = sqliteStamp(now());
   const calRef = calendarRef(now(), virtualClock);
-  const months = horizonMonths(calRef, settings.scanHorizonMonths);
-  // Expiry runs even while scanning is paused — a paused scanner must not
-  // leave past-month/departed deals sitting in the feed indefinitely.
+  // Expiry runs even while scanning is paused — a paused scanner must not leave
+  // past-month / departed / out-of-universe deals sitting in the feed.
   expireDealsBeforeMonth(db, calRef.toISOString().slice(0, 7));
-  // Deals the scanner will never re-visit must not linger with stale prices.
   const zombies = expireDealsOutsideUniverse(db, {
     source: provider.name,
     origin: settings.homeAirport,
-    lastMonth: months[months.length - 1]!,
     today: calRef.toISOString().slice(0, 10),
+    cabins: settings.monitoredCabins,
+    tripTypes: settings.tripTypes,
   });
   if (zombies > 0) {
     logEvent(db, {
       level: 'info',
       scope: 'batch',
-      message: `expired ${zombies} deal${zombies === 1 ? '' : 's'} no longer scanned (departed, or outside the current airport/horizon)`,
+      message: `expired ${zombies} deal${zombies === 1 ? '' : 's'} no longer scanned (departed, or outside the current airport/cabins/trip types)`,
       at: asOf,
     });
   }
@@ -123,73 +112,100 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
     return { planned: 0, scanned: 0, snapshots: 0, failures: 0, skippedReason: 'budget_exhausted' };
   }
 
-  const limit = Math.min(remaining, batchLimit ?? Math.ceil(settings.dailyCallBudget / 4));
-  const tasks = planBatch({
-    destinations: activeDestinations(db),
-    cabins: settings.monitoredCabins,
-    latestCapture: latestCaptureByRouteMonth(db, provider.name, settings.homeAirport),
-    now: now(),
-    monthsNow: calRef,
-    dormant: dormantRouteMonths(
-      db,
-      provider.name,
-      settings.homeAirport,
-      DORMANT_AFTER_EMPTY,
-      REPROBE_AFTER_DAYS,
-      asOf,
-    ),
-    horizon: settings.scanHorizonMonths,
-    limit,
-  });
+  const budgetLeft = () =>
+    settings.dailyCallBudget - apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+  // Cap candidates scored per batch so a cron batch spreads the day's work
+  // (budget/4 by default, matching the 4 daily slots); an explicit limit wins.
+  const scoreLimit = batchLimit ?? Math.ceil(settings.dailyCallBudget / 4);
 
   let scanned = 0;
   let snapshots = 0;
   let failures = 0;
+  let planned = 0;
+  const scannedCombos = new Set<string>();
   // Per-cabin tallies catch the failure mode where one cabin silently returns
-  // zero prices for every route (e.g. a query format Google stops honoring)
-  // while other cabins keep the batch looking healthy.
+  // zero prices for every candidate while other cabins keep the batch healthy.
   const byCabin = new Map<string, { scanned: number; snapshots: number }>();
-  for (const task of tasks) {
-    // Re-check the budget each task: the plan-time count doesn't include the
-    // calls this batch has since made (retries log an extra call each), so a
-    // transient-heavy batch could otherwise overshoot the daily cap.
-    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
-    if (spent >= settings.dailyCallBudget) {
-      logEvent(db, {
-        level: 'info',
-        scope: 'batch',
-        message: `batch stopped early: daily budget spent (${spent}/${settings.dailyCallBudget})`,
-        at: sqliteStamp(now()),
-      });
-      break;
-    }
-    try {
-      const r = await scanRouteMonth(deps, settings, task, now);
-      scanned++;
-      snapshots += r.snapshots;
-      const tally = byCabin.get(task.cabin) ?? { scanned: 0, snapshots: 0 };
-      tally.scanned++;
-      tally.snapshots += r.snapshots;
-      byCabin.set(task.cabin, tally);
-    } catch (err) {
-      failures++;
-      console.error(`scan failed for ${task.destination} ${task.month} ${task.cabin}:`, err);
-      logEvent(db, {
-        level: 'error',
-        scope: 'scan',
-        message: `${settings.homeAirport}→${task.destination} ${task.month} ${task.cabin}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-        detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
-        at: sqliteStamp(now()),
-      });
+
+  // One Explore search per (trip type, cabin) discovers a ranked destination
+  // list; the fixed-date scraper then scores each candidate cheapest-first
+  // until the daily budget runs out (the rest roll to the next cron batch).
+  outer: for (const tripType of settings.tripTypes) {
+    for (const cabin of settings.monitoredCabins) {
+      if (budgetLeft() <= 0 || scanned >= scoreLimit) break outer;
+      let destinations: ExploreDestination[];
+      try {
+        destinations = await provider.exploreSearch({
+          origin: settings.homeAirport,
+          cabin,
+          tripType,
+          adults: settings.adults,
+        });
+        recordMockCall(db, provider.name, `explore ${settings.homeAirport} ${cabin} ${tripType}`, 'exploreSearch', asOfNow(now));
+      } catch (err) {
+        failures++;
+        logEvent(db, {
+          level: 'error',
+          scope: 'scan',
+          message: `explore ${settings.homeAirport} ${cabin} ${tripType}: ${err instanceof Error ? err.message : String(err)}`,
+          detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
+          at: sqliteStamp(now()),
+        });
+        continue;
+      }
+
+      scannedCombos.add(`${cabin}|${tripType}`);
+      planned += destinations.length;
+      for (const d of destinations) {
+        if (budgetLeft() <= 0 || scanned >= scoreLimit) break;
+        const cand: Candidate = {
+          source: provider.name,
+          origin: settings.homeAirport,
+          destination: d.iata,
+          city: d.city,
+          country: d.country,
+          cabin,
+          tripType,
+        };
+        try {
+          const r = await scanCandidate(deps, cand, d, now);
+          scanned++;
+          snapshots += r.snapshots;
+          const tally = byCabin.get(cabin) ?? { scanned: 0, snapshots: 0 };
+          tally.scanned++;
+          tally.snapshots += r.snapshots;
+          byCabin.set(cabin, tally);
+        } catch (err) {
+          failures++;
+          console.error(`scan failed for ${d.iata} ${tripType} ${cabin}:`, err);
+          logEvent(db, {
+            level: 'error',
+            scope: 'scan',
+            message: `${settings.homeAirport}→${d.iata} ${tripType} ${cabin}: ${err instanceof Error ? err.message : String(err)}`,
+            detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
+            at: sqliteStamp(now()),
+          });
+        }
+      }
+      // Inherent verification: a shown deal whose destination Explore no longer
+      // ranks for this trip shape is gone. Only when Explore actually returned a
+      // list — never nuke the feed on a transient empty/failed search.
+      if (destinations.length > 0) {
+        expireDealsNotSeen(
+          db,
+          provider.name,
+          settings.homeAirport,
+          cabin,
+          tripType,
+          destinations.map((x) => x.iata),
+        );
+      }
     }
   }
 
-  // Verify the deals the feed is currently showing whose route-month this batch
-  // didn't already scan (below).
-  const scannedKeys = new Set(tasks.map((t) => `${t.destination}|${t.month}|${t.cabin}`));
-  const v = await verifyShownDeals(deps, settings, now, calRef, scannedKeys);
+  // Safety net: re-price shown deals whose combo this batch never reached (budget
+  // cut it off), so a moved/vanished fare still updates. Cheap — few active deals.
+  const v = await verifyShownDeals(deps, settings, now, scannedCombos, budgetLeft);
   snapshots += v.snapshots;
   failures += v.failures;
 
@@ -197,15 +213,12 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
     level: 'info',
     scope: 'batch',
     message:
-      `batch: ${scanned}/${tasks.length} route-months scanned, ${snapshots} prices` +
+      `batch: ${scanned}/${planned} candidates scored across ${scannedCombos.size} searches, ${snapshots} prices` +
       (failures ? `, ${failures} failed` : ''),
     at: sqliteStamp(now()),
   });
   // Anomaly: a sizable batch where every scan "succeeded" with zero prices is
-  // the signature of Google changing its markup (or serving a non-English
-  // page) — each page load reports ok, so without this check the breakage is
-  // invisible while baselines silently age out. Individual no-flight routes
-  // are normal; a whole batch of them is not.
+  // the signature of Google changing its markup (or serving a non-English page).
   if (scanned >= 10 && snapshots === 0) {
     logEvent(db, {
       level: 'error',
@@ -214,8 +227,6 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       at: sqliteStamp(now()),
     });
   } else {
-    // Per-cabin variant: a cabin with a decent sample but zero prices while
-    // the batch overall is healthy — e.g. its query format stopped working.
     for (const [cabin, t] of byCabin) {
       if (t.scanned >= 8 && t.snapshots === 0) {
         logEvent(db, {
@@ -227,134 +238,121 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       }
     }
   }
-  return { planned: tasks.length, scanned, snapshots, failures };
+  return { planned, scanned, snapshots, failures };
 }
 
-/** Scrape one route-month-cabin and fold the result into the DB: insights,
- *  snapshots, empty-streak state, and deal detection/alerting (via onQuotes).
- *  Throws on scrape failure so the caller can count/log it. Shared by the main
- *  batch loop and the shown-deal verification pass. */
-async function scanRouteMonth(
+/** Price one Explore candidate at its exact dates and fold the result into the
+ *  DB: insights, snapshots, and deal detection/alerting (via onQuotes). A
+ *  candidate that returns no fares expires any deal it was backing. Throws on
+ *  scrape failure so the caller can count/log it. */
+async function scanCandidate(
   deps: ScanDeps,
-  settings: ReturnType<typeof getSettings>,
-  task: RouteMonthTask,
+  cand: Candidate,
+  dates: { departDate: string; returnDate: string },
   now: () => Date,
 ): Promise<{ snapshots: number; hadQuotes: boolean }> {
   const { db, provider } = deps;
   const capturedAt = sqliteStamp(now());
-  const key = {
-    source: provider.name,
-    origin: settings.homeAirport,
-    destination: task.destination,
-    cabin: task.cabin,
-    travelMonth: task.month,
-  };
-  // Fetch Google's history graph only while this route-month lacks its own
-  // baseline — the click cost decays to ~zero as real history accumulates.
-  const wantHistory =
-    captureDaysForRouteMonth(
-      db,
-      provider.name,
-      settings.homeAirport,
-      task.destination,
-      task.cabin,
-      task.month,
-      BASELINE_WINDOWS.MONTH_WINDOW_DAYS,
-    ) < BASELINE_WINDOWS.MONTH_MIN_DAYS;
   const { quotes, insights } = await provider.monthQuotes({
-    origin: settings.homeAirport,
-    destination: task.destination,
-    cabin: task.cabin,
-    month: task.month,
-    nights: settings.tripNights,
-    departureDow: settings.departureDow,
-    wantHistory,
+    origin: cand.origin,
+    destination: cand.destination,
+    cabin: cand.cabin,
+    month: dates.departDate.slice(0, 7),
+    departDate: dates.departDate,
+    returnDate: dates.returnDate,
+    // Google publishes the price history for the exact trip; always fetch it —
+    // it's the baseline and the sparkline in the Explore model.
+    wantHistory: true,
   });
+  const insightsKey = {
+    source: provider.name,
+    origin: cand.origin,
+    destination: cand.destination,
+    cabin: cand.cabin,
+    tripType: cand.tripType,
+  };
   if (insights) {
-    upsertPriceInsights(db, key, { level: insights.level, history: insights.history, capturedAt });
+    upsertPriceInsights(db, insightsKey, { level: insights.level, history: insights.history, capturedAt });
   }
-  // The real provider logs its own calls (with HTTP status); the mock doesn't.
   if (provider.name === 'mock') {
     recordApiCall(db, {
       provider: 'mock',
       endpoint: 'monthQuotes',
-      route: `${settings.homeAirport}-${task.destination} ${task.month} ${task.cabin}`,
+      route: `${cand.origin}-${cand.destination} ${cand.tripType} ${cand.cabin}`,
       ok: true,
       calledAt: capturedAt,
     });
   }
-  // Track empty streaks so reliably fare-less pairs go dormant (see planner).
-  recordScanOutcome(db, key, quotes.length > 0, capturedAt);
   let snapshots = 0;
   for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
     insertSnapshot(db, {
+      source: provider.name,
       origin: q.origin,
       destination: q.destination,
+      city: cand.city,
+      country: cand.country,
       cabin: q.cabin,
-      travelMonth: task.month,
+      tripType: cand.tripType,
+      travelMonth: q.departDate.slice(0, 7),
       departDate: q.departDate,
       returnDate: q.returnDate,
       priceCents: q.priceCents,
       stops: q.stops,
       carrier: q.carrier,
-      source: provider.name,
       capturedAt,
     });
     snapshots++;
   }
   if (quotes.length > 0) {
-    await deps.onQuotes?.(task, quotes); // detection: refresh or expire vs the floor
+    await deps.onQuotes?.(cand); // detection: refresh or expire vs the floor
   } else {
-    // No fares at all: any deal we were showing for this route-month is gone.
-    // (Detection can't do this — with zero quotes there's no fresh price to
-    // compare.) Applies to the main loop and the verify pass alike.
-    const existing = getDealByRouteMonth(db, provider.name, settings.homeAirport, task.destination, task.cabin, task.month);
+    // No fares at all: any deal we were showing for this combo is gone.
+    const existing = getDealByCombo(db, provider.name, cand.origin, cand.destination, cand.cabin, cand.tripType);
     if (existing?.status === 'active') expireDeal(db, existing.id);
   }
   return { snapshots, hadQuotes: quotes.length > 0 };
 }
 
-/** Re-scrape currently-displayed deals (active, monitored cabin, in-horizon)
- *  whose route-month isn't in `scannedKeys`, so a fare that has since vanished
- *  is dropped and a moved price is refreshed. Fares present → normal detection;
- *  zero fares → scanRouteMonth expires the deal. Budget-capped; the active-deal
- *  count is small so this is cheap. */
+/** Re-price currently-shown deals whose (cabin, trip_type) combo wasn't scanned
+ *  this batch, so a fare that has moved or vanished is refreshed/dropped.
+ *  Budget-capped; the active-deal count is small so this is cheap. */
 async function verifyShownDeals(
   deps: ScanDeps,
   settings: ReturnType<typeof getSettings>,
   now: () => Date,
-  calRef: Date,
-  scannedKeys: Set<string>,
+  scannedCombos: Set<string>,
+  budgetLeft: () => number,
 ): Promise<{ verified: number; dropped: number; snapshots: number; failures: number }> {
   const { db, provider } = deps;
-  const virtualClock = deps.now !== undefined;
-  const horizon = new Set(horizonMonths(calRef, settings.scanHorizonMonths));
   const toVerify = activeDealsWithPlace(db, provider.name, settings.monitoredCabins).filter(
-    (d) =>
-      horizon.has(d.travelMonth) && !scannedKeys.has(`${d.destination}|${d.travelMonth}|${d.cabin}`),
+    (d) => !scannedCombos.has(`${d.cabin}|${d.tripType}`),
   );
   let verified = 0;
   let dropped = 0;
   let snapshots = 0;
   let failures = 0;
   for (const d of toVerify) {
-    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
-    if (spent >= settings.dailyCallBudget) break;
-    const task: RouteMonthTask = { destination: d.destination, cabin: d.cabin, month: d.travelMonth, tier: 0 };
+    if (budgetLeft() <= 0) break;
+    const cand: Candidate = {
+      source: provider.name,
+      origin: d.origin,
+      destination: d.destination,
+      city: d.city,
+      country: d.country,
+      cabin: d.cabin,
+      tripType: d.tripType,
+    };
     try {
-      const r = await scanRouteMonth(deps, settings, task, now);
+      const r = await scanCandidate(deps, cand, { departDate: d.departDate, returnDate: d.returnDate }, now);
       verified++;
       snapshots += r.snapshots;
-      // scanRouteMonth expired it if fares vanished or recovered above the floor.
       if (getDeal(db, d.id)?.status === 'expired') dropped++;
     } catch (err) {
       failures++;
       logEvent(db, {
         level: 'error',
         scope: 'scan',
-        message: `verify ${settings.homeAirport}→${d.destination} ${d.travelMonth} ${d.cabin}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        message: `verify ${d.origin}→${d.destination} ${d.tripType} ${d.cabin}: ${err instanceof Error ? err.message : String(err)}`,
         detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
         at: sqliteStamp(now()),
       });
@@ -378,8 +376,7 @@ export interface VerifyResult {
 }
 
 /** Re-scrape every currently-shown deal on demand (Advanced → re-check deals),
- *  independent of a full batch. Shares the batch mutex so it can't overlap a
- *  scan, and respects the daily budget. */
+ *  independent of a full batch. Shares the batch mutex and respects the budget. */
 export async function runDealVerification(deps: ScanDeps): Promise<VerifyResult> {
   if (batchInFlight) return { verified: 0, dropped: 0, skippedReason: 'already_running' };
   batchInFlight = true;
@@ -388,14 +385,25 @@ export async function runDealVerification(deps: ScanDeps): Promise<VerifyResult>
     const virtualClock = deps.now !== undefined;
     const now = deps.now ?? (() => new Date());
     const settings = getSettings(db, config);
-    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
-    if (spent >= settings.dailyCallBudget) return { verified: 0, dropped: 0, skippedReason: 'budget_exhausted' };
-    const calRef = calendarRef(now(), virtualClock);
-    const { verified, dropped } = await verifyShownDeals(deps, settings, now, calRef, new Set());
+    const budgetLeft = () =>
+      settings.dailyCallBudget - apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+    if (budgetLeft() <= 0) return { verified: 0, dropped: 0, skippedReason: 'budget_exhausted' };
+    // Empty scannedCombos → verify every shown deal.
+    const { verified, dropped } = await verifyShownDeals(deps, settings, now, new Set(), budgetLeft);
     return { verified, dropped };
   } finally {
     batchInFlight = false;
   }
+}
+
+/** Record a call for the mock provider (the real provider logs its own). */
+function recordMockCall(db: Db, providerName: string, route: string, endpoint: string, calledAt: string): void {
+  if (providerName !== 'mock') return;
+  recordApiCall(db, { provider: 'mock', endpoint, route, ok: true, calledAt });
+}
+
+function asOfNow(now: () => Date): string {
+  return sqliteStamp(now());
 }
 
 export function sqliteStamp(d: Date): string {

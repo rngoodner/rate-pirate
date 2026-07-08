@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   CABINS,
   CABIN_LABELS,
-  WEEKDAYS,
+  TRIP_TYPES,
+  TRIP_TYPE_LABELS,
   type AppEvent,
   type Cabin,
   type ScanStatus,
   type Settings as SettingsType,
+  type TripType,
 } from '@rate-pirate/shared';
 import { api, timeAgo, timeUntil } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
@@ -22,16 +23,11 @@ export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [status, setStatus] = useState<ScanStatus | null>(null);
   const [events, setEvents] = useState<AppEvent[]>([]);
-  const [destCounts, setDestCounts] = useState<{ active: number; total: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadStatus = useCallback(() => {
     api.status().then(setStatus).catch(() => {});
     api.events().then(setEvents).catch(() => {});
-    api
-      .destinations()
-      .then((d) => setDestCounts({ active: d.filter((x) => x.active).length, total: d.length }))
-      .catch(() => {});
   }, []);
   useEffect(() => {
     api.settings().then(setSettings).catch(() => {});
@@ -83,6 +79,22 @@ export default function Settings() {
     save({ monitoredCabins: next });
   }
 
+  function toggleTripType(tripType: TripType) {
+    if (!settings) return;
+    const has = settings.tripTypes.includes(tripType);
+    const next = has
+      ? settings.tripTypes.filter((t) => t !== tripType)
+      : TRIP_TYPES.filter((t) => t === tripType || settings.tripTypes.includes(t));
+    if (next.length === 0) {
+      flashNotice('Keep at least one trip type selected');
+      return;
+    }
+    // Optimistic: a second quick tap must see the first one applied, or the
+    // two PUTs (each carrying the full trip-type array) would drop one change.
+    setSettings({ ...settings, tripTypes: next });
+    save({ tripTypes: next });
+  }
+
   if (!settings) return <p className="mt-12 text-center text-gray-400">Loading…</p>;
 
   return (
@@ -105,61 +117,44 @@ export default function Settings() {
           />
         </Field>
 
-        <Link
-          to="/settings/destinations"
-          className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
-        >
-          <span>
-            <span className={`block ${CARD_TITLE}`}>Destinations</span>
-            <span className={CARD_DESC}>
-              {destCounts ? `${destCounts.active} of ${destCounts.total} selected` : '…'}
-            </span>
-          </span>
-          <span aria-hidden className="text-lg text-gray-400">
-            ›
-          </span>
-        </Link>
-
-        <Field label="Trip length & departure">
-          <div className="flex gap-3">
-            <label className="flex-1">
-              <span className="mb-1 block text-xs text-gray-500">Nights</span>
-              <input
-                key={settings.tripNights}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-lg font-bold outline-none focus:border-brand"
-                type="number"
-                inputMode="numeric"
-                aria-label="Trip length in nights"
-                defaultValue={settings.tripNights}
-                min={1}
-                max={30}
-                onBlur={(e) => {
-                  const n = Math.min(30, Math.max(1, Math.round(Number(e.target.value))));
-                  e.target.value = String(n);
-                  if (n !== settings.tripNights) save({ tripNights: n });
-                }}
-              />
-            </label>
-            <label className="flex-1">
-              <span className="mb-1 block text-xs text-gray-500">Departs</span>
-              <select
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-lg font-bold outline-none focus:border-brand"
-                aria-label="Departure day of week"
-                value={settings.departureDow}
-                onChange={(e) => save({ departureDow: Number(e.target.value) })}
-              >
-                {WEEKDAYS.map((day, i) => (
-                  <option key={day} value={i}>
-                    {day}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <Field label="Trip types to monitor">
+          <div className="flex flex-wrap gap-2">
+            {TRIP_TYPES.map((tripType) => {
+              const selected = settings.tripTypes.includes(tripType);
+              return (
+                <button
+                  key={tripType}
+                  type="button"
+                  aria-pressed={selected}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                    selected
+                      ? 'border-brand bg-brand-pale text-brand'
+                      : 'border-gray-300 bg-white text-gray-600'
+                  }`}
+                  onClick={() => toggleTripType(tripType)}
+                >
+                  {TRIP_TYPE_LABELS[tripType]}
+                </button>
+              );
+            })}
           </div>
           <p className={`mt-2 ${CARD_DESC}`}>
-            We price one representative trip per month: {settings.tripNights} night
-            {settings.tripNights === 1 ? '' : 's'}, departing the 2nd {WEEKDAYS[settings.departureDow]}{' '}
-            of the month. Changing this resets the price baseline while new history builds.
+            Each trip type is scanned separately, so monitoring more means each one refreshes less
+            often. At least one is required.
+          </p>
+        </Field>
+
+        <Field label="Adults">
+          <NumberInput
+            value={settings.adults}
+            min={1}
+            max={9}
+            label="Number of adults"
+            onCommit={(n) => save({ adults: n })}
+          />
+          <p className={`mt-2 ${CARD_DESC}`}>
+            Prices are quoted for this many adults. Changing this resets the price baseline while new
+            history builds.
           </p>
         </Field>
 
@@ -481,7 +476,7 @@ function Advanced({
         <div className="flex flex-col gap-4 border-t border-gray-100 p-4">
           <AdvField
             label="Daily call budget"
-            hint="One call = one Google Flights page load. Rule of thumb: at least (destinations × horizon months × cabins) ÷ 5, so every route gets enough captures to form a baseline. Stay under ~500/day to keep scraping friendly."
+            hint="One call = one Google Flights page load: one Explore search per trip-type × cabin, plus one per destination it scores. Cheapest candidates are priced first; the rest roll to the next batch. Stay under ~500/day to keep scraping friendly."
           >
             <NumberInput
               value={settings.dailyCallBudget}
@@ -532,7 +527,7 @@ function Advanced({
 
           <AdvField
             label="Re-alert cooldown (days)"
-            hint="Days before the same route-month can alert again. A drop ≥10% below the last alerted price re-alerts sooner."
+            hint="Days before the same deal can alert again. A drop ≥10% below the last alerted price re-alerts sooner."
           >
             <NumberInput
               value={settings.alertCooldownDays}
@@ -540,19 +535,6 @@ function Advanced({
               max={30}
               label="Re-alert cooldown in days"
               onCommit={(n) => save({ alertCooldownDays: n })}
-            />
-          </AdvField>
-
-          <AdvField
-            label="Scan horizon (months)"
-            hint="How many months ahead to watch. A longer horizon finds deals further out but grows the scan universe, so each route refreshes less often at the same budget."
-          >
-            <NumberInput
-              value={settings.scanHorizonMonths}
-              min={2}
-              max={9}
-              label="Scan horizon in months"
-              onCommit={(n) => save({ scanHorizonMonths: n })}
             />
           </AdvField>
 

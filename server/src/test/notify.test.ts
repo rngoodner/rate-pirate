@@ -15,9 +15,8 @@ const settings: Settings = {
   alertMinDiscount: 0.2,
   dealMinDiscount: 0.05,
   alertCooldownDays: 7,
-  scanHorizonMonths: 6,
-  tripNights: 7,
-  departureDow: 6,
+  tripTypes: ['one_week'],
+  adults: 1,
 };
 
 function fakeSender() {
@@ -39,7 +38,12 @@ function makeDeal(
     source: 'mock',
     origin: 'ABQ',
     destination: 'NAP',
+    // Left blank so the alert summary falls back to the IATA code (as it does
+    // when a deal predates place enrichment) — asserted below.
+    city: '',
+    country: '',
     cabin: 'economy',
+    tripType: 'one_week',
     travelMonth: '2026-08',
     bestPriceCents: 65000,
     baselinePriceCents: 100000,

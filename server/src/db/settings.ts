@@ -1,8 +1,17 @@
-import { CABINS, isCabin, type Cabin, type Settings } from '@rate-pirate/shared';
+import {
+  CABINS,
+  isCabin,
+  isTripType,
+  TRIP_TYPES,
+  type Cabin,
+  type Settings,
+  type TripType,
+} from '@rate-pirate/shared';
 import type { Config } from '../config.js';
 import type { Db } from './db.js';
 
 const DEFAULT_CABINS: Cabin[] = ['economy', 'premium_economy'];
+const DEFAULT_TRIP_TYPES: TripType[] = ['one_week'];
 
 /** Precedence: DB value → env-derived default → hardcoded default. */
 export function getSettings(db: Db, config: Config): Settings {
@@ -22,9 +31,8 @@ export function getSettings(db: Db, config: Config): Settings {
     alertMinDiscount: floatOr(stored.get('alert_min_discount'), 0.2),
     dealMinDiscount: floatOr(stored.get('deal_min_discount'), 0.05),
     alertCooldownDays: intOr(stored.get('alert_cooldown_days'), 7),
-    scanHorizonMonths: intOr(stored.get('scan_horizon_months'), 6),
-    tripNights: intOr(stored.get('trip_nights'), 7),
-    departureDow: intOr(stored.get('departure_dow'), 6), // Saturday
+    tripTypes: parseTripTypes(stored.get('trip_types')),
+    adults: intOr(stored.get('adults'), 1),
   };
 }
 
@@ -35,6 +43,15 @@ function parseCabins(csv: string | undefined): Cabin[] {
   const chosen = new Set(csv.split(',').map((s) => s.trim()).filter(isCabin));
   const ordered = CABINS.filter((c) => chosen.has(c));
   return ordered.length > 0 ? ordered : [...DEFAULT_CABINS];
+}
+
+/** Parse the stored CSV; fall back to the default if empty/invalid. Order
+ *  follows TRIP_TYPES so the UI and scans are deterministic. */
+function parseTripTypes(csv: string | undefined): TripType[] {
+  if (!csv) return [...DEFAULT_TRIP_TYPES];
+  const chosen = new Set(csv.split(',').map((s) => s.trim()).filter(isTripType));
+  const ordered = TRIP_TYPES.filter((t) => chosen.has(t));
+  return ordered.length > 0 ? ordered : [...DEFAULT_TRIP_TYPES];
 }
 
 export function updateSettings(db: Db, patch: Partial<Settings>): void {
@@ -50,9 +67,10 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
     alert_min_discount: patch.alertMinDiscount?.toString(),
     deal_min_discount: patch.dealMinDiscount?.toString(),
     alert_cooldown_days: patch.alertCooldownDays?.toString(),
-    scan_horizon_months: patch.scanHorizonMonths?.toString(),
-    trip_nights: patch.tripNights?.toString(),
-    departure_dow: patch.departureDow?.toString(),
+    trip_types: patch.tripTypes
+      ? TRIP_TYPES.filter((t) => patch.tripTypes!.includes(t)).join(',')
+      : undefined,
+    adults: patch.adults?.toString(),
   };
   const upsert = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',

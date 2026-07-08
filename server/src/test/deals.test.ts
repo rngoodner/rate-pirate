@@ -1,32 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { computeBaseline, median } from '../deals/baseline.js';
 import { scoreDeal } from '../deals/score.js';
-import { processRouteMonth, reevaluateDeals } from '../deals/detect.js';
+import { processCandidate, reevaluateDeals, type Candidate } from '../deals/detect.js';
 import { openDb } from '../db/db.js';
-import {
-  getDealByRouteMonth,
-  insertSnapshot,
-  upsertDeal,
-  upsertPriceInsights,
-  type SnapshotRow,
-} from '../db/repo.js';
-
-function rows(prices: number[], startDay = 1, month = '2026-06'): SnapshotRow[] {
-  return prices.map((priceCents, i) => ({
-    id: i,
-    origin: 'ABQ',
-    destination: 'NAP',
-    cabin: 'economy' as const,
-    travelMonth: '2026-08',
-    departDate: '2026-08-18',
-    returnDate: '2026-08-26',
-    priceCents,
-    stops: 1,
-    carrier: 'KL',
-    source: 'mock',
-    capturedAt: `${month}-${String(startDay + i).padStart(2, '0')} 12:00:00`,
-  }));
-}
+import { getDealByCombo, insertSnapshot, upsertDeal, upsertPriceInsights } from '../db/repo.js';
 
 describe('median', () => {
   it('handles odd, even, and single-element inputs', () => {
@@ -37,45 +14,22 @@ describe('median', () => {
 });
 
 describe('computeBaseline', () => {
-  it('cold start: not enough data returns null', () => {
-    expect(computeBaseline([], [])).toBeNull();
-    expect(computeBaseline(rows([100, 100, 100]), rows([100, 100, 100]))).toBeNull();
+  const insights = (medianCents: number | null) => ({
+    level: 'typical' as const,
+    medianCents,
+    series: medianCents == null ? [] : [{ date: '2026-06-01', priceCents: medianCents }],
+    capturedAt: '2026-07-06 08:00:00',
   });
 
-  it('uses the month median when the month history is deep enough', () => {
-    const month = rows([100000, 101000, 99000, 102000, 98000, 100500, 99500, 100200, 101500, 98500]);
-    const route = rows(Array(20).fill(50000));
-    expect(computeBaseline(month, route)).toEqual({ baselineCents: 100100, kind: 'month' });
+  it('returns null without Google insights or a median', () => {
+    expect(computeBaseline()).toBeNull();
+    expect(computeBaseline(null)).toBeNull();
+    // Insights without a median (no history captured yet) can't be a baseline.
+    expect(computeBaseline(insights(null))).toBeNull();
   });
 
-  it('falls back to the route median when only the route is deep enough', () => {
-    const month = rows([100000, 101000]); // too shallow
-    const route = rows(Array(15).fill(80000), 1);
-    expect(computeBaseline(month, route)).toEqual({ baselineCents: 80000, kind: 'route' });
-  });
-
-  it('requires distinct days, not just row count', () => {
-    const sameDay = rows(Array(12).fill(100000)).map((r) => ({
-      ...r,
-      capturedAt: '2026-06-01 12:00:00',
-    }));
-    expect(computeBaseline(sameDay, sameDay)).toBeNull();
-  });
-
-  it('bootstraps from Google insights only when both own baselines are too thin', () => {
-    const insights = {
-      level: 'low' as const,
-      medianCents: 92000,
-      series: [{ date: '2026-06-01', priceCents: 92000 }],
-      capturedAt: '2026-07-06 08:00:00',
-    };
-    // Cold start + insights → google baseline
-    expect(computeBaseline([], [], insights)).toEqual({ baselineCents: 92000, kind: 'google' });
-    // Mature month history wins over insights
-    const month = rows([100000, 101000, 99000, 102000, 98000, 100500, 99500, 100200, 101500, 98500]);
-    expect(computeBaseline(month, [], insights)?.kind).toBe('month');
-    // Insights without a series (median null) can't be a baseline
-    expect(computeBaseline([], [], { ...insights, medianCents: null })).toBeNull();
+  it('uses the Google-history median as the baseline', () => {
+    expect(computeBaseline(insights(92000))).toEqual({ baselineCents: 92000, kind: 'google' });
   });
 });
 
@@ -136,179 +90,130 @@ describe('scoreDeal', () => {
   });
 });
 
-describe('processRouteMonth', () => {
-  const route = { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, month: '2026-08' };
+describe('processCandidate', () => {
+  const cand: Candidate = {
+    source: 'mock',
+    origin: 'ABQ',
+    destination: 'NAP',
+    city: 'Naples',
+    country: 'Italy',
+    cabin: 'economy',
+    tripType: 'one_week',
+  };
+  const key = { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, tripType: 'one_week' as const };
 
-  function seedHistory(db: ReturnType<typeof openDb>, priceCents: number, days = 12) {
-    for (let day = 1; day <= days; day++) {
-      insertSnapshot(db, {
-        origin: 'ABQ',
-        destination: 'NAP',
-        cabin: 'economy',
-        travelMonth: '2026-08',
-        departDate: '2026-08-18',
-        returnDate: '2026-08-26',
-        priceCents,
-        stops: 1,
-        carrier: 'KL',
-        source: 'mock',
-        capturedAt: `2026-06-${String(day).padStart(2, '0')} 12:00:00`,
-      });
-    }
-  }
-
-  it('ignores a stale google verdict (different scan) but applies a same-scan one', () => {
-    const db = openDb(':memory:');
-    seedHistory(db, 100000);
-    const snap = {
-      origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, travelMonth: '2026-08',
-      departDate: '2026-08-10', returnDate: '2026-08-17', priceCents: 65000, stops: 1,
-      carrier: 'AA', source: 'mock',
-    };
-    insertSnapshot(db, { ...snap, capturedAt: '2026-06-20 08:00:00' });
-    const key = { source: 'mock', origin: 'ABQ', destination: 'NAP', cabin: 'economy' as const, travelMonth: '2026-08' };
-
-    // Insight captured in a DIFFERENT (earlier) scan → verdict must be ignored.
-    upsertPriceInsights(db, key, { level: 'low', history: null, capturedAt: '2026-06-01 08:00:00' });
-    const stale = processRouteMonth(db, route, '2026-06-20 08:00:00')!;
-
-    // Same insight, now stamped to THIS scan → +8 nudge applies.
-    upsertPriceInsights(db, key, { level: 'low', history: null, capturedAt: '2026-06-20 08:00:00' });
-    const fresh = processRouteMonth(db, route, '2026-06-20 08:00:00')!;
-    expect(fresh.score).toBe(stale.score + 8);
-  });
-
-  it('creates a deal when the latest price is well below baseline', () => {
-    const db = openDb(':memory:');
-    seedHistory(db, 100000);
+  function insertCurrent(db: ReturnType<typeof openDb>, priceCents: number, capturedAt: string) {
     insertSnapshot(db, {
       origin: 'ABQ',
       destination: 'NAP',
+      city: 'Naples',
+      country: 'Italy',
       cabin: 'economy',
+      tripType: 'one_week',
       travelMonth: '2026-08',
       departDate: '2026-08-10',
       returnDate: '2026-08-17',
-      priceCents: 65000,
+      priceCents,
       stops: 1,
       carrier: 'AA',
       source: 'mock',
-      capturedAt: '2026-06-20 08:00:00',
+      capturedAt,
     });
+  }
 
-    const deal = processRouteMonth(db, route, '2026-06-20 08:00:00');
+  /** Google baseline via insights median. */
+  function seedBaseline(db: ReturnType<typeof openDb>, medianCents: number, capturedAt: string) {
+    upsertPriceInsights(db, key, {
+      level: 'low',
+      history: [{ date: '2026-06-01', priceCents: medianCents }],
+      capturedAt,
+    });
+  }
+
+  it('ignores a stale Google verdict (different scan) but applies a same-scan one', () => {
+    const db = openDb(':memory:');
+    // A modest discount so the base score leaves headroom for the +8 nudge
+    // (a deep discount would already clamp at 100 and hide it).
+    insertCurrent(db, 80000, '2026-06-20 08:00:00');
+
+    // Insight captured in a DIFFERENT (earlier) scan → verdict must be ignored.
+    seedBaseline(db, 100000, '2026-06-01 08:00:00');
+    const stale = processCandidate(db, cand, '2026-06-20 08:00:00')!;
+
+    // Same insight, now stamped to THIS scan → +8 nudge applies.
+    seedBaseline(db, 100000, '2026-06-20 08:00:00');
+    const fresh = processCandidate(db, cand, '2026-06-20 08:00:00')!;
+    expect(fresh.score).toBe(stale.score + 8);
+  });
+
+  it('creates a deal when the latest price is well below the Google baseline', () => {
+    const db = openDb(':memory:');
+    insertCurrent(db, 65000, '2026-06-20 08:00:00');
+    seedBaseline(db, 100000, '2026-06-19 08:00:00');
+
+    const deal = processCandidate(db, cand, '2026-06-20 08:00:00');
     expect(deal).not.toBeNull();
     expect(deal!.bestPriceCents).toBe(65000);
     expect(deal!.baselinePriceCents).toBe(100000);
     expect(deal!.discountPct).toBeCloseTo(0.35);
     expect(deal!.status).toBe('active');
     expect(deal!.departDate).toBe('2026-08-10');
+    expect(deal!.baselineSource).toBe('google');
 
     // A custom feed floor above the discount suppresses (and expires) the deal.
-    const suppressed = processRouteMonth(db, route, '2026-06-20 09:00:00', { minDiscount: 0.4 });
+    const suppressed = processCandidate(db, cand, '2026-06-20 09:00:00', { minDiscount: 0.4 });
     expect(suppressed).toBeNull();
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
-      'expired',
-    );
+    expect(getDealByCombo(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week')!.status).toBe('expired');
 
     // reevaluateDeals sweeps the whole feed from stored snapshots — lowering
-    // the floor resurrects the deal instantly, no new scan required. Window
-    // spans the deal's Aug travel month (asOf is a virtual June).
-    const win = { currentMonth: '2026-06', lastMonth: '2026-12', today: '2026-06-20' };
+    // the floor resurrects the deal instantly, no new scan required.
+    const win = { currentMonth: '2026-06', today: '2026-06-20', cabins: ['economy' as const], tripTypes: ['one_week' as const] };
     reevaluateDeals(db, 'mock', 'ABQ', 0.05, win, '2026-06-20 10:00:00');
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
-      'active',
-    );
+    expect(getDealByCombo(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week')!.status).toBe('active');
     reevaluateDeals(db, 'mock', 'ABQ', 0.4, win, '2026-06-20 11:00:00');
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe(
-      'expired',
-    );
+    expect(getDealByCombo(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week')!.status).toBe('expired');
 
-    // A past-travel-month deal (snapshots persist ~180 days, so its history is
-    // still present) must be EXPIRED by a re-evaluate, never revived.
+    // A past-travel-month deal must be EXPIRED by a re-evaluate, never revived.
     upsertDeal(db, {
-      source: 'mock', origin: 'ABQ', destination: 'CUN', cabin: 'economy', travelMonth: '2026-05',
+      source: 'mock', origin: 'ABQ', destination: 'CUN', city: 'Cancún', country: 'Mexico',
+      cabin: 'economy', tripType: 'one_week', travelMonth: '2026-05',
       bestPriceCents: 60000, baselinePriceCents: 100000, discountPct: 0.4, score: 95,
       departDate: '2026-05-10', returnDate: '2026-05-17', seenAt: '2026-05-15 12:00:00',
     });
-    for (let day = 1; day <= 12; day++) {
-      insertSnapshot(db, {
-        origin: 'ABQ', destination: 'CUN', cabin: 'economy', travelMonth: '2026-05',
-        departDate: '2026-05-10', returnDate: '2026-05-17', priceCents: 60000, stops: 1,
-        carrier: 'KL', source: 'mock', capturedAt: `2026-05-${String(day).padStart(2, '0')} 12:00:00`,
-      });
-    }
     reevaluateDeals(db, 'mock', 'ABQ', 0.05, win, '2026-06-20 12:00:00');
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'CUN', 'economy', '2026-05')!.status).toBe(
-      'expired',
-    );
+    expect(getDealByCombo(db, 'mock', 'ABQ', 'CUN', 'economy', 'one_week')!.status).toBe('expired');
   });
 
-  it('returns null during cold start and creates no deal', () => {
+  it('returns null during cold start (no Google baseline yet) and creates no deal', () => {
     const db = openDb(':memory:');
-    seedHistory(db, 100000, 3); // too few days
-    expect(processRouteMonth(db, route, '2026-06-04 12:00:00')).toBeNull();
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')).toBeNull();
+    insertCurrent(db, 65000, '2026-06-20 08:00:00'); // a price, but no insights baseline
+    expect(processCandidate(db, cand, '2026-06-20 08:00:00')).toBeNull();
+    expect(getDealByCombo(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week')).toBeNull();
   });
 
   it('expires the deal when the price recovers', () => {
     const db = openDb(':memory:');
-    seedHistory(db, 100000);
-    insertSnapshot(db, {
-      origin: 'ABQ',
-      destination: 'NAP',
-      cabin: 'economy',
-      travelMonth: '2026-08',
-      departDate: '2026-08-10',
-      returnDate: '2026-08-17',
-      priceCents: 65000,
-      stops: 1,
-      carrier: 'AA',
-      source: 'mock',
-      capturedAt: '2026-06-20 08:00:00',
-    });
-    processRouteMonth(db, route, '2026-06-20 08:00:00');
+    seedBaseline(db, 100000, '2026-06-19 08:00:00');
+    insertCurrent(db, 65000, '2026-06-20 08:00:00');
+    processCandidate(db, cand, '2026-06-20 08:00:00');
 
-    // Next scan: price back to normal
-    insertSnapshot(db, {
-      origin: 'ABQ',
-      destination: 'NAP',
-      cabin: 'economy',
-      travelMonth: '2026-08',
-      departDate: '2026-08-18',
-      returnDate: '2026-08-26',
-      priceCents: 99000,
-      stops: 1,
-      carrier: 'KL',
-      source: 'mock',
-      capturedAt: '2026-06-21 08:00:00',
-    });
-    expect(processRouteMonth(db, route, '2026-06-21 08:00:00')).toBeNull();
-    expect(getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!.status).toBe('expired');
+    // Next scan: price back to normal.
+    insertCurrent(db, 99000, '2026-06-21 08:00:00');
+    expect(processCandidate(db, cand, '2026-06-21 08:00:00')).toBeNull();
+    expect(getDealByCombo(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week')!.status).toBe('expired');
   });
 
-  it('refreshes an existing deal in place (same route-month stays one row)', () => {
+  it('refreshes an existing deal in place (same combo stays one row)', () => {
     const db = openDb(':memory:');
-    seedHistory(db, 100000);
+    seedBaseline(db, 100000, '2026-06-19 08:00:00');
     for (const [day, price] of [
-      [20, 70000],
-      [21, 62000],
+      ['20', 70000],
+      ['21', 62000],
     ] as const) {
-      insertSnapshot(db, {
-        origin: 'ABQ',
-        destination: 'NAP',
-        cabin: 'economy',
-        travelMonth: '2026-08',
-        departDate: '2026-08-10',
-        returnDate: '2026-08-17',
-        priceCents: price,
-        stops: 1,
-        carrier: 'AA',
-        source: 'mock',
-        capturedAt: `2026-06-${day} 08:00:00`,
-      });
-      processRouteMonth(db, route, `2026-06-${day} 08:00:00`);
+      insertCurrent(db, price, `2026-06-${day} 08:00:00`);
+      processCandidate(db, cand, `2026-06-${day} 08:00:00`);
     }
-    const deal = getDealByRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08')!;
+    const deal = getDealByCombo(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week')!;
     expect(deal.bestPriceCents).toBe(62000);
     expect(deal.firstSeenAt).toBe('2026-06-20 08:00:00');
     expect(deal.lastSeenAt).toBe('2026-06-21 08:00:00');

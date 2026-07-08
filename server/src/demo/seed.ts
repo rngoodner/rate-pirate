@@ -1,9 +1,8 @@
-import { CABINS, type Cabin } from '@rate-pirate/shared';
+import { CABINS, TRIP_TYPES, type Cabin, type TripType } from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
-import { activeDestinations, insertSnapshot } from '../db/repo.js';
-import { processRouteMonth } from '../deals/detect.js';
+import { insertSnapshot, upsertPriceInsights } from '../db/repo.js';
+import { processCandidate } from '../deals/detect.js';
 import { SyntheticProvider } from '../providers/mock.js';
-import { horizonMonths } from '../scanner/planner.js';
 import { sqliteStamp } from '../scanner/scan.js';
 
 const DAY = 86_400_000;
@@ -13,6 +12,7 @@ export interface SeedOptions {
   days?: number;
   homeAirport?: string;
   cabins?: Cabin[];
+  tripTypes?: TripType[];
   log?: (line: string) => void;
 }
 
@@ -42,9 +42,10 @@ async function seedDays(
 ): Promise<{ snapshots: number; days: number }> {
   const days = opts.days ?? 14;
   const origin = opts.homeAirport ?? 'ABQ';
-  // Seed every cabin so toggling cabins in the demo shows data immediately.
+  // Seed every cabin and trip type so toggling them in the demo shows data
+  // immediately, mirroring the live Explore-discover → fixed-date-score flow.
   const cabins = opts.cabins ?? [...CABINS];
-  const destinations = activeDestinations(db);
+  const tripTypes = opts.tripTypes ?? [...TRIP_TYPES];
   const start = Date.now() - days * DAY;
 
   let virtualNow = new Date(start);
@@ -54,31 +55,49 @@ async function seedDays(
   for (let day = 0; day < days; day++) {
     virtualNow = new Date(start + day * DAY);
     const asOf = sqliteStamp(virtualNow);
-    const months = horizonMonths(virtualNow, 6);
-    for (const dest of destinations) {
-      for (const month of months) {
-        for (const cabin of cabins) {
-          const { quotes } = await provider.monthQuotes({ origin, destination: dest.iata, cabin, month });
+    for (const tripType of tripTypes) {
+      for (const cabin of cabins) {
+        const destinations = await provider.exploreSearch({ origin, cabin, tripType, adults: 1 });
+        for (const d of destinations) {
+          const { quotes, insights } = await provider.monthQuotes({
+            origin,
+            destination: d.iata,
+            cabin,
+            month: d.departDate.slice(0, 7),
+            departDate: d.departDate,
+            returnDate: d.returnDate,
+            wantHistory: true,
+          });
+          if (insights) {
+            upsertPriceInsights(
+              db,
+              { source: 'mock', origin, destination: d.iata, cabin, tripType },
+              { level: insights.level, history: insights.history, capturedAt: asOf },
+            );
+          }
           for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
             insertSnapshot(db, {
+              source: 'mock',
               origin: q.origin,
               destination: q.destination,
+              city: d.city,
+              country: d.country,
               cabin: q.cabin,
-              travelMonth: month,
+              tripType,
+              travelMonth: q.departDate.slice(0, 7),
               departDate: q.departDate,
               returnDate: q.returnDate,
               priceCents: q.priceCents,
               stops: q.stops,
               carrier: q.carrier,
-              source: 'mock',
               capturedAt: asOf,
             });
             snapshots++;
           }
           if (quotes.length > 0) {
-            processRouteMonth(
+            processCandidate(
               db,
-              { source: 'mock', origin, destination: dest.iata, cabin, month },
+              { source: 'mock', origin, destination: d.iata, city: d.city, country: d.country, cabin, tripType },
               asOf,
             );
           }

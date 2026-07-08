@@ -1,4 +1,4 @@
-import type { AppEvent, Deal, DealDetail, Destination, ScanStatus, Settings } from '@rate-pirate/shared';
+import type { AppEvent, Deal, DealDetail, ScanStatus, Settings } from '@rate-pirate/shared';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Timeout keeps a hung fetch on flaky mobile from leaving "Loading…" forever.
@@ -38,13 +38,6 @@ export const api = {
     request<{ verified: number; dropped: number; skippedReason?: string }>('/api/verify-deals', {
       method: 'POST',
       signal: AbortSignal.timeout(8_000),
-    }),
-  destinations: () => request<Destination[]>('/api/destinations'),
-  setDestinationActive: (iata: string, active: boolean) =>
-    request<Destination>(`/api/destinations/${iata}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ active }),
     }),
   testEmail: () =>
     request<{ sent: boolean; via: string; to: string }>('/api/test-email', { method: 'POST' }),

@@ -1,29 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
 import {
-  activeDestinations,
   apiCallsToday,
   errorsToday,
   expireDealsOutsideUniverse,
   insertSnapshot,
-  latestCaptureByRouteMonth,
+  latestScanSnapshots,
   logEvent,
   pruneEvents,
   pruneSnapshots,
   recentEvents,
   recordApiCall,
-  seedDestinations,
-  snapshotsForRoute,
-  snapshotsForRouteMonth,
   upsertDeal,
 } from '../db/repo.js';
-import { DESTINATION_CATALOG } from '../scanner/destinations.js';
 
 function snap(overrides: Partial<Parameters<typeof insertSnapshot>[1]> = {}) {
   return {
     origin: 'ABQ',
     destination: 'NAP',
+    city: 'Naples',
+    country: 'Italy',
     cabin: 'economy' as const,
+    tripType: 'one_week' as const,
     travelMonth: '2026-08',
     departDate: '2026-08-18',
     returnDate: '2026-08-26',
@@ -36,17 +34,25 @@ function snap(overrides: Partial<Parameters<typeof insertSnapshot>[1]> = {}) {
 }
 
 describe('repo', () => {
-  it('inserts and queries snapshots by route-month and route', () => {
+  it('returns the latest scan snapshots for a combo, cheapest first, with place info', () => {
     const db = openDb(':memory:');
-    insertSnapshot(db, snap());
-    insertSnapshot(db, snap({ travelMonth: '2026-09', departDate: '2026-09-05' }));
-    insertSnapshot(db, snap({ destination: 'CUN' }));
+    // Two captures of the same (destination, cabin, trip type) combo — only the
+    // newest capture's rows come back.
+    insertSnapshot(db, snap({ priceCents: 90000, capturedAt: '2026-06-19 12:00:00' }));
+    insertSnapshot(db, snap({ priceCents: 80000, departDate: '2026-08-10', capturedAt: '2026-06-20 12:00:00' }));
+    insertSnapshot(db, snap({ priceCents: 70000, departDate: '2026-08-18', capturedAt: '2026-06-20 12:00:00' }));
+    // A different trip type must not bleed into the one-week query.
+    insertSnapshot(db, snap({ tripType: 'weekend', priceCents: 40000, capturedAt: '2026-06-20 12:00:00' }));
 
-    expect(snapshotsForRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08', 60)).toHaveLength(1);
-    expect(snapshotsForRoute(db, 'mock', 'ABQ', 'NAP', 'economy', 90)).toHaveLength(2);
-    const row = snapshotsForRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08', 60)[0]!;
-    expect(row.priceCents).toBe(75800);
-    expect(row.capturedAt).toBeTruthy();
+    const rows = latestScanSnapshots(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.priceCents).toBe(70000); // cheapest first
+    expect(rows[0]!.city).toBe('Naples');
+    expect(rows[0]!.country).toBe('Italy');
+    // Isolated per trip type.
+    expect(latestScanSnapshots(db, 'mock', 'ABQ', 'NAP', 'economy', 'weekend')[0]!.priceCents).toBe(
+      40000,
+    );
   });
 
   it('honors capturedAt overrides and an asOf window (simulator support)', () => {
@@ -54,44 +60,24 @@ describe('repo', () => {
     insertSnapshot(db, snap({ capturedAt: '2026-05-10 12:00:00', priceCents: 100000 }));
     insertSnapshot(db, snap({ capturedAt: '2026-06-20 12:00:00', priceCents: 90000 }));
 
-    // As of July 1st, a 60-day window sees both; a 5-day window sees neither.
-    expect(snapshotsForRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08', 60, '2026-07-01 00:00:00')).toHaveLength(2);
-    expect(snapshotsForRouteMonth(db, 'mock', 'ABQ', 'NAP', 'economy', '2026-08', 5, '2026-07-01 00:00:00')).toHaveLength(0);
-    // asOf excludes future captures
-    expect(snapshotsForRoute(db, 'mock', 'ABQ', 'NAP', 'economy', 60, '2026-05-11 00:00:00')).toHaveLength(1);
-  });
-
-  it('tracks latest capture per route-month for the planner', () => {
-    const db = openDb(':memory:');
-    insertSnapshot(db, snap({ capturedAt: '2026-07-01 08:00:00' }));
-    insertSnapshot(db, snap({ capturedAt: '2026-07-03 08:00:00' }));
-    insertSnapshot(db, snap({ destination: 'CUN', capturedAt: '2026-07-02 08:00:00' }));
-
-    const latest = latestCaptureByRouteMonth(db, 'mock', 'ABQ');
-    expect(latest.get('NAP|2026-08|economy')).toBe('2026-07-03 08:00:00');
-    expect(latest.get('CUN|2026-08|economy')).toBe('2026-07-02 08:00:00');
+    // As of mid-May only the earlier capture is visible.
+    expect(
+      latestScanSnapshots(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week', '2026-05-15 00:00:00')[0]!
+        .priceCents,
+    ).toBe(100000);
+    // As of July the newer capture wins.
+    expect(
+      latestScanSnapshots(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week', '2026-07-01 00:00:00')[0]!
+        .priceCents,
+    ).toBe(90000);
   });
 
   it('prunes old snapshots', () => {
     const db = openDb(':memory:');
     insertSnapshot(db, snap({ capturedAt: '2020-01-01 00:00:00' }));
-    insertSnapshot(db, snap());
+    insertSnapshot(db, snap({ capturedAt: '2026-06-20 12:00:00' }));
     expect(pruneSnapshots(db, 180)).toBe(1);
-    expect(snapshotsForRoute(db, 'mock', 'ABQ', 'NAP', 'economy', 365)).toHaveLength(1);
-  });
-
-  it('seeds the destination catalog idempotently', () => {
-    const db = openDb(':memory:');
-    seedDestinations(db, DESTINATION_CATALOG);
-    seedDestinations(db, DESTINATION_CATALOG);
-    const active = activeDestinations(db);
-    expect(active.length).toBe(DESTINATION_CATALOG.length);
-    expect(active.find((d) => d.iata === 'NAP')).toMatchObject({
-      city: 'Naples',
-      country: 'Italy',
-      tier: 2,
-      active: true,
-    });
+    expect(latestScanSnapshots(db, 'mock', 'ABQ', 'NAP', 'economy', 'one_week')).toHaveLength(1);
   });
 
   it('counts api calls made today', () => {
@@ -102,47 +88,16 @@ describe('repo', () => {
     expect(apiCallsToday(db, 'google-flights')).toBe(2);
   });
 
-  it('re-seeding prunes destinations dropped from the catalog and expires their deals', () => {
-    const db = openDb(':memory:');
-    seedDestinations(db, DESTINATION_CATALOG);
-    // A user toggle on a kept destination must survive re-seeding.
-    db.prepare(`UPDATE destinations SET active = 0 WHERE iata = 'NAP'`).run();
-    const goner = DESTINATION_CATALOG[0]!;
-    upsertDeal(db, {
-      source: 'mock',
-      origin: 'ABQ',
-      destination: goner.iata,
-      cabin: 'economy',
-      travelMonth: '2099-08',
-      bestPriceCents: 65000,
-      baselinePriceCents: 100000,
-      discountPct: 0.35,
-      score: 93,
-      departDate: '2099-08-18',
-      returnDate: '2099-08-26',
-      seenAt: '2026-07-06 08:00:00',
-    });
-
-    seedDestinations(db, DESTINATION_CATALOG.slice(1)); // drop the first entry
-    const remaining = activeDestinations(db).map((d) => d.iata);
-    expect(remaining).not.toContain(goner.iata);
-    expect(
-      (db.prepare(`SELECT active FROM destinations WHERE iata = 'NAP'`).get() as { active: number })
-        .active,
-    ).toBe(0); // toggle preserved
-    const deal = db
-      .prepare(`SELECT status FROM deals WHERE destination = ?`)
-      .get(goner.iata) as { status: string };
-    expect(deal.status).toBe('expired');
-  });
-
-  it('expires zombie deals outside the scanned universe', () => {
+  it('expires deals the scanner will never re-evaluate (origin, departed, cabin, trip type)', () => {
     const db = openDb(':memory:');
     const base = {
       source: 'mock',
       origin: 'ABQ',
       destination: 'NAP',
+      city: 'Naples',
+      country: 'Italy',
       cabin: 'economy' as const,
+      tripType: 'one_week' as const,
       travelMonth: '2026-09',
       bestPriceCents: 65000,
       baselinePriceCents: 100000,
@@ -153,24 +108,30 @@ describe('repo', () => {
       seenAt: '2026-07-06 08:00:00',
     };
     const keep = upsertDeal(db, base);
-    // Unmonitored cabins are deliberately NOT expired (feed hides them instead).
-    const otherCabin = upsertDeal(db, { ...base, cabin: 'first', destination: 'LIS' });
     const wrongOrigin = upsertDeal(db, { ...base, origin: 'DEN', destination: 'CUN' });
-    const beyondHorizon = upsertDeal(db, { ...base, travelMonth: '2027-05', destination: 'OSL', departDate: '2027-05-09', returnDate: '2027-05-16' });
-    const departed = upsertDeal(db, { ...base, travelMonth: '2026-07', destination: 'SEA', departDate: '2026-07-04', returnDate: '2026-07-11' });
+    // Cabins/trip types the user no longer monitors ARE swept (feed hides them,
+    // but the scanner never touches them again so they'd show stale prices).
+    const otherCabin = upsertDeal(db, { ...base, cabin: 'first', destination: 'LIS' });
+    const otherTrip = upsertDeal(db, { ...base, tripType: 'weekend', destination: 'OSL' });
+    const departed = upsertDeal(db, {
+      ...base,
+      destination: 'SEA',
+      departDate: '2026-07-04',
+      returnDate: '2026-07-11',
+    });
 
     const expired = expireDealsOutsideUniverse(db, {
       source: 'mock',
       origin: 'ABQ',
-      lastMonth: '2027-01',
       today: '2026-07-06',
+      cabins: ['economy'],
+      tripTypes: ['one_week'],
     });
-    expect(expired).toBe(3);
+    expect(expired).toBe(4);
     const status = (id: number) =>
       (db.prepare('SELECT status FROM deals WHERE id = ?').get(id) as { status: string }).status;
     expect(status(keep.id)).toBe('active');
-    expect(status(otherCabin.id)).toBe('active');
-    for (const d of [wrongOrigin, beyondHorizon, departed]) {
+    for (const d of [wrongOrigin, otherCabin, otherTrip, departed]) {
       expect(status(d.id)).toBe('expired');
     }
   });

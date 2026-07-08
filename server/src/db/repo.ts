@@ -1,10 +1,13 @@
-import type { Cabin } from '@rate-pirate/shared';
+import type { Cabin, TripType } from '@rate-pirate/shared';
 import type { Db } from './db.js';
 
 export interface SnapshotInput {
   origin: string;
   destination: string;
+  city: string;
+  country: string;
   cabin: Cabin;
+  tripType: TripType;
   travelMonth: string;
   departDate: string;
   returnDate: string;
@@ -21,99 +24,32 @@ export interface SnapshotRow extends Required<Omit<SnapshotInput, 'capturedAt'>>
   capturedAt: string;
 }
 
-export interface DestinationRow {
-  iata: string;
-  city: string;
-  country: string;
-  region: string;
-  tier: number;
-  active: boolean;
-}
-
-const snapshotCols = `id, origin, destination, cabin, travel_month AS travelMonth, depart_date AS departDate,
-  return_date AS returnDate, price_cents AS priceCents, stops, carrier, source, captured_at AS capturedAt`;
+const snapshotCols = `id, source, origin, destination, city, country, cabin,
+  trip_type AS tripType, travel_month AS travelMonth, depart_date AS departDate,
+  return_date AS returnDate, price_cents AS priceCents, stops, carrier, captured_at AS capturedAt`;
 
 export function insertSnapshot(db: Db, s: SnapshotInput): void {
   db.prepare(
     `INSERT INTO price_snapshots
-       (origin, destination, cabin, travel_month, depart_date, return_date, price_cents, stops, carrier, source, captured_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+       (source, origin, destination, city, country, cabin, trip_type, travel_month,
+        depart_date, return_date, price_cents, stops, carrier, captured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
   ).run(
+    s.source,
     s.origin,
     s.destination,
+    s.city,
+    s.country,
     s.cabin,
+    s.tripType,
     s.travelMonth,
     s.departDate,
     s.returnDate,
     s.priceCents,
     s.stops,
     s.carrier,
-    s.source,
     s.capturedAt ?? null,
   );
-}
-
-export function snapshotsForRouteMonth(
-  db: Db,
-  source: string,
-  origin: string,
-  destination: string,
-  cabin: Cabin,
-  travelMonth: string,
-  sinceDays: number,
-  asOf?: string,
-): SnapshotRow[] {
-  return db
-    .prepare(
-      `SELECT ${snapshotCols} FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
-         AND captured_at >= datetime(COALESCE(?, 'now'), '-' || ? || ' days')
-         AND captured_at <= COALESCE(?, datetime('now'))
-       ORDER BY captured_at`,
-    )
-    .all(source, origin, destination, cabin, travelMonth, asOf ?? null, sinceDays, asOf ?? null) as SnapshotRow[];
-}
-
-export function snapshotsForRoute(
-  db: Db,
-  source: string,
-  origin: string,
-  destination: string,
-  cabin: Cabin,
-  sinceDays: number,
-  asOf?: string,
-): SnapshotRow[] {
-  return db
-    .prepare(
-      `SELECT ${snapshotCols} FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ?
-         AND captured_at >= datetime(COALESCE(?, 'now'), '-' || ? || ' days')
-         AND captured_at <= COALESCE(?, datetime('now'))
-       ORDER BY captured_at`,
-    )
-    .all(source, origin, destination, cabin, asOf ?? null, sinceDays, asOf ?? null) as SnapshotRow[];
-}
-
-/** Latest capture time per route-month-cabin, for the planner's staleness
- *  ranking. Keys are `${destination}|${month}|${cabin}`. */
-export function latestCaptureByRouteMonth(
-  db: Db,
-  source: string,
-  origin: string,
-): Map<string, string> {
-  const rows = db
-    .prepare(
-      `SELECT destination, cabin, travel_month AS travelMonth, MAX(captured_at) AS latest
-       FROM price_snapshots WHERE source = ? AND origin = ?
-       GROUP BY destination, cabin, travel_month`,
-    )
-    .all(source, origin) as {
-    destination: string;
-    cabin: string;
-    travelMonth: string;
-    latest: string;
-  }[];
-  return new Map(rows.map((r) => [`${r.destination}|${r.travelMonth}|${r.cabin}`, r.latest]));
 }
 
 export function pruneSnapshots(db: Db, olderThanDays: number): number {
@@ -122,86 +58,24 @@ export function pruneSnapshots(db: Db, olderThanDays: number): number {
     .run(olderThanDays).changes;
 }
 
-// --- destinations ---
-
-/** The catalog is the source of truth: new entries are inserted (user
- *  active/inactive toggles on existing rows are preserved), and rows for
- *  destinations REMOVED from the catalog are deleted, their deals expired. */
-export function seedDestinations(
-  db: Db,
-  catalog: Omit<DestinationRow, 'active'>[],
-): void {
-  // Guard: an empty catalog would make `NOT IN ()` match every row and wipe the
-  // whole table (and expire all deals). No legitimate caller passes empty.
-  if (catalog.length === 0) return;
-  const insert = db.prepare(
-    'INSERT OR IGNORE INTO destinations (iata, city, country, region, tier) VALUES (?, ?, ?, ?, ?)',
-  );
-  db.transaction(() => {
-    for (const d of catalog) insert.run(d.iata, d.city, d.country, d.region, d.tier);
-    const placeholders = catalog.map(() => '?').join(', ');
-    const iatas = catalog.map((d) => d.iata);
-    const removed = db
-      .prepare(`DELETE FROM destinations WHERE iata NOT IN (${placeholders})`)
-      .run(...iatas).changes;
-    if (removed > 0) {
-      db.prepare(
-        `UPDATE deals SET status = 'expired'
-         WHERE status = 'active' AND destination NOT IN (${placeholders})`,
-      ).run(...iatas);
-    }
-  })();
-}
-
-export function activeDestinations(db: Db): DestinationRow[] {
-  return (
-    db
-      .prepare('SELECT iata, city, country, region, tier, active FROM destinations WHERE active = 1')
-      .all() as (Omit<DestinationRow, 'active'> & { active: number })[]
-  ).map((r) => ({ ...r, active: r.active === 1 }));
-}
-
-export function allDestinations(db: Db): DestinationRow[] {
-  return (
-    db
-      .prepare(
-        'SELECT iata, city, country, region, tier, active FROM destinations ORDER BY city',
-      )
-      .all() as (Omit<DestinationRow, 'active'> & { active: number })[]
-  ).map((r) => ({ ...r, active: r.active === 1 }));
-}
-
-export function setDestinationActive(db: Db, iata: string, active: boolean): boolean {
-  return (
-    db.prepare('UPDATE destinations SET active = ? WHERE iata = ?').run(active ? 1 : 0, iata)
-      .changes > 0
-  );
-}
-
-export function getDestination(db: Db, iata: string): DestinationRow | null {
-  const r = db
-    .prepare('SELECT iata, city, country, region, tier, active FROM destinations WHERE iata = ?')
-    .get(iata) as (Omit<DestinationRow, 'active'> & { active: number }) | undefined;
-  return r ? { ...r, active: r.active === 1 } : null;
-}
-
-/** Snapshots from the most recent scan of a route-month (all share captured_at). */
+/** Snapshots from the most recent scan of a (destination, cabin, trip_type)
+ *  combo — all share captured_at, cheapest first. */
 export function latestScanSnapshots(
   db: Db,
   source: string,
   origin: string,
   destination: string,
   cabin: Cabin,
-  travelMonth: string,
+  tripType: TripType,
   asOf?: string,
 ): SnapshotRow[] {
   return db
     .prepare(
       `SELECT ${snapshotCols} FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?
          AND captured_at = (
            SELECT MAX(captured_at) FROM price_snapshots
-           WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
+           WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?
              AND captured_at <= COALESCE(?, datetime('now'))
          )
        ORDER BY price_cents`,
@@ -211,14 +85,51 @@ export function latestScanSnapshots(
       origin,
       destination,
       cabin,
-      travelMonth,
+      tripType,
       source,
       origin,
       destination,
       cabin,
-      travelMonth,
+      tripType,
       asOf ?? null,
     ) as SnapshotRow[];
+}
+
+/** Distinct (destination, cabin, trip_type) combos with a recent snapshot, each
+ *  carrying its latest place info. Drives feed-floor re-evaluation over stored
+ *  data (no provider calls). */
+export function recentSnapshotCombos(
+  db: Db,
+  source: string,
+  origin: string,
+  sinceDays: number,
+): { destination: string; city: string; country: string; cabin: Cabin; tripType: TripType }[] {
+  return db
+    .prepare(
+      `SELECT destination, cabin, trip_type AS tripType,
+              -- place info from the most recent snapshot of the combo
+              (SELECT city FROM price_snapshots s2
+               WHERE s2.source = s.source AND s2.origin = s.origin
+                 AND s2.destination = s.destination AND s2.cabin = s.cabin
+                 AND s2.trip_type = s.trip_type
+               ORDER BY captured_at DESC LIMIT 1) AS city,
+              (SELECT country FROM price_snapshots s2
+               WHERE s2.source = s.source AND s2.origin = s.origin
+                 AND s2.destination = s.destination AND s2.cabin = s.cabin
+                 AND s2.trip_type = s.trip_type
+               ORDER BY captured_at DESC LIMIT 1) AS country
+       FROM price_snapshots s
+       WHERE source = ? AND origin = ?
+         AND captured_at >= datetime('now', '-' || ? || ' days')
+       GROUP BY destination, cabin, trip_type`,
+    )
+    .all(source, origin, sinceDays) as {
+    destination: string;
+    city: string;
+    country: string;
+    cabin: Cabin;
+    tripType: TripType;
+  }[];
 }
 
 // --- deals ---
@@ -228,7 +139,10 @@ export interface DealRow {
   source: string;
   origin: string;
   destination: string;
+  city: string;
+  country: string;
   cabin: Cabin;
+  tripType: TripType;
   travelMonth: string;
   bestPriceCents: number;
   baselinePriceCents: number;
@@ -242,7 +156,8 @@ export interface DealRow {
   baselineSource: 'observed' | 'google';
 }
 
-const dealCols = `id, source, origin, destination, cabin, travel_month AS travelMonth,
+const dealCols = `id, source, origin, destination, city, country, cabin,
+  trip_type AS tripType, travel_month AS travelMonth,
   best_price_cents AS bestPriceCents, baseline_price_cents AS baselinePriceCents,
   discount_pct AS discountPct, score, depart_date AS departDate, return_date AS returnDate,
   first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status,
@@ -252,7 +167,10 @@ export interface DealInput {
   source: string;
   origin: string;
   destination: string;
+  city: string;
+  country: string;
   cabin: Cabin;
+  tripType: TripType;
   travelMonth: string;
   bestPriceCents: number;
   baselinePriceCents: number;
@@ -261,16 +179,20 @@ export interface DealInput {
   departDate: string;
   returnDate: string;
   seenAt: string;
-  /** Defaults to 'observed' (our own history). */
+  /** Defaults to 'google' (Explore-era baselines come from Google's history). */
   baselineSource?: 'observed' | 'google';
 }
 
 export function upsertDeal(db: Db, d: DealInput): DealRow {
   db.prepare(
-    `INSERT INTO deals (source, origin, destination, cabin, travel_month, best_price_cents, baseline_price_cents,
-       discount_pct, score, depart_date, return_date, first_seen_at, last_seen_at, status, baseline_source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
-     ON CONFLICT(source, origin, destination, cabin, travel_month) DO UPDATE SET
+    `INSERT INTO deals (source, origin, destination, city, country, cabin, trip_type, travel_month,
+       best_price_cents, baseline_price_cents, discount_pct, score, depart_date, return_date,
+       first_seen_at, last_seen_at, status, baseline_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+     ON CONFLICT(source, origin, destination, cabin, trip_type) DO UPDATE SET
+       city = excluded.city,
+       country = excluded.country,
+       travel_month = excluded.travel_month,
        best_price_cents = excluded.best_price_cents,
        baseline_price_cents = excluded.baseline_price_cents,
        discount_pct = excluded.discount_pct,
@@ -288,7 +210,10 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
     d.source,
     d.origin,
     d.destination,
+    d.city,
+    d.country,
     d.cabin,
+    d.tripType,
     d.travelMonth,
     d.bestPriceCents,
     d.baselinePriceCents,
@@ -298,26 +223,26 @@ export function upsertDeal(db: Db, d: DealInput): DealRow {
     d.returnDate,
     d.seenAt,
     d.seenAt,
-    d.baselineSource ?? 'observed',
+    d.baselineSource ?? 'google',
   );
-  return getDealByRouteMonth(db, d.source, d.origin, d.destination, d.cabin, d.travelMonth)!;
+  return getDealByCombo(db, d.source, d.origin, d.destination, d.cabin, d.tripType)!;
 }
 
-export function getDealByRouteMonth(
+export function getDealByCombo(
   db: Db,
   source: string,
   origin: string,
   destination: string,
   cabin: Cabin,
-  travelMonth: string,
+  tripType: TripType,
 ): DealRow | null {
   return (
     (db
       .prepare(
         `SELECT ${dealCols} FROM deals
-         WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?`,
+         WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?`,
       )
-      .get(source, origin, destination, cabin, travelMonth) as DealRow | undefined) ?? null
+      .get(source, origin, destination, cabin, tripType) as DealRow | undefined) ?? null
   );
 }
 
@@ -326,15 +251,6 @@ export function getDeal(db: Db, id: number): DealRow | null {
     (db.prepare(`SELECT ${dealCols} FROM deals WHERE id = ?`).get(id) as DealRow | undefined) ??
     null
   );
-}
-
-export function activeDeals(db: Db, source: string): DealRow[] {
-  return db
-    .prepare(
-      `SELECT ${dealCols} FROM deals WHERE source = ? AND status = 'active'
-       ORDER BY score DESC, discount_pct DESC`,
-    )
-    .all(source) as DealRow[];
 }
 
 export function expireDeal(db: Db, id: number): void {
@@ -349,211 +265,54 @@ export function expireDealsBeforeMonth(db: Db, month: string): number {
 }
 
 /** Expire active deals the scanner will never re-evaluate: wrong origin (home
- *  airport changed), travel month beyond the horizon (horizon shrunk), a
- *  departure date already in the past, or a destination the user deactivated.
- *  Without this, such "zombie" deals sit in the feed showing stale prices
- *  indefinitely. Unmonitored cabins are NOT expired — the feed already hides
- *  them, and expiring would break the toggle-a-cabin-to-peek flow (and demo
- *  mode's instant cabin switching). */
+ *  airport changed), a departure date already in the past, or a cabin/trip-type
+ *  the user no longer monitors. Without this, such "zombie" deals sit in the
+ *  feed showing stale prices indefinitely. Deals for still-monitored combos are
+ *  left alone (the feed hides unselected cabins but keeps the data). */
 export function expireDealsOutsideUniverse(
   db: Db,
-  opts: { source: string; origin: string; lastMonth: string; today: string },
+  opts: {
+    source: string;
+    origin: string;
+    today: string;
+    cabins: Cabin[];
+    tripTypes: TripType[];
+  },
 ): number {
+  const cabinPh = opts.cabins.map(() => '?').join(', ') || `''`;
+  const tripPh = opts.tripTypes.map(() => '?').join(', ') || `''`;
   return db
     .prepare(
       `UPDATE deals SET status = 'expired'
        WHERE status = 'active' AND source = ?
-         AND (origin != ? OR travel_month > ? OR depart_date < ?
-           OR destination IN (SELECT iata FROM destinations WHERE active = 0))`,
+         AND (origin != ? OR depart_date < ?
+           OR cabin NOT IN (${cabinPh}) OR trip_type NOT IN (${tripPh}))`,
     )
-    .run(opts.source, opts.origin, opts.lastMonth, opts.today).changes;
+    .run(opts.source, opts.origin, opts.today, ...opts.cabins, ...opts.tripTypes).changes;
 }
 
-// --- Google price insights (bootstrap baselines) ---
-
-export interface PriceInsightsRow {
-  level: 'low' | 'typical' | 'high' | null;
-  medianCents: number | null;
-  /** Parsed series, oldest first; [] when none was captured. */
-  series: { date: string; priceCents: number }[];
-  capturedAt: string;
-}
-
-export function upsertPriceInsights(
-  db: Db,
-  key: { source: string; origin: string; destination: string; cabin: Cabin; travelMonth: string },
-  insights: {
-    level: string | null;
-    history: { date: string; priceCents: number }[] | null;
-    capturedAt: string;
-  },
-): void {
-  const prices = insights.history?.map((p) => p.priceCents) ?? [];
-  const medianCents = prices.length
-    ? [...prices].sort((a, b) => a - b)[Math.floor(prices.length / 2)]!
-    : null;
-  db.prepare(
-    `INSERT INTO price_insights (source, origin, destination, cabin, travel_month,
-       level, median_cents, series_json, captured_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(source, origin, destination, cabin, travel_month) DO UPDATE SET
-       level = excluded.level,
-       -- Keep an earlier series if a later capture didn't fetch one.
-       median_cents = COALESCE(excluded.median_cents, price_insights.median_cents),
-       series_json = COALESCE(excluded.series_json, price_insights.series_json),
-       captured_at = excluded.captured_at`,
-  ).run(
-    key.source,
-    key.origin,
-    key.destination,
-    key.cabin,
-    key.travelMonth,
-    insights.level,
-    medianCents,
-    insights.history ? JSON.stringify(insights.history.map((p) => [p.date, p.priceCents])) : null,
-    insights.capturedAt,
-  );
-}
-
-export function getPriceInsights(
+/** Expire active deals for a (cabin, trip_type) combo whose destination wasn't
+ *  in the latest Explore search — inherent shown-deal verification: a deal that
+ *  no longer ranks among Explore's results for its trip shape is gone. */
+export function expireDealsNotSeen(
   db: Db,
   source: string,
   origin: string,
-  destination: string,
   cabin: Cabin,
-  travelMonth: string,
-): PriceInsightsRow | null {
-  const row = db
-    .prepare(
-      `SELECT level, median_cents AS medianCents, series_json AS seriesJson,
-              captured_at AS capturedAt
-       FROM price_insights
-       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?`,
-    )
-    .get(source, origin, destination, cabin, travelMonth) as
-    | { level: PriceInsightsRow['level']; medianCents: number | null; seriesJson: string | null; capturedAt: string }
-    | undefined;
-  if (!row) return null;
-  const series = row.seriesJson
-    ? (JSON.parse(row.seriesJson) as [string, number][]).map(([date, priceCents]) => ({
-        date,
-        priceCents,
-      }))
-    : [];
-  return { level: row.level, medianCents: row.medianCents, series, capturedAt: row.capturedAt };
-}
-
-// --- Scan state (dormant-pair skipping) ---
-
-/** Record a scan attempt: resets the empty streak when fares were seen, else
- *  grows it. Drives dormant-pair skipping so cabins/routes with no fares stop
- *  consuming scrapes. */
-export function recordScanOutcome(
-  db: Db,
-  key: { source: string; origin: string; destination: string; cabin: Cabin; travelMonth: string },
-  hadQuotes: boolean,
-  at: string,
-): void {
-  db.prepare(
-    `INSERT INTO scan_state (source, origin, destination, cabin, travel_month, last_scan_at, consecutive_empty)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(source, origin, destination, cabin, travel_month) DO UPDATE SET
-       last_scan_at = excluded.last_scan_at,
-       consecutive_empty = CASE WHEN ? THEN 0 ELSE scan_state.consecutive_empty + 1 END`,
-  ).run(
-    key.source,
-    key.origin,
-    key.destination,
-    key.cabin,
-    key.travelMonth,
-    at,
-    hadQuotes ? 0 : 1,
-    hadQuotes ? 1 : 0,
-  );
-}
-
-/** Route-month-cabins to skip this batch: enough consecutive empty scans to
- *  look structurally fare-less, AND probed recently enough that we're still
- *  resting them (a stale dormant pair is allowed through to re-probe, so newly
- *  added service or a seasonal cabin gets picked back up). Keys 'dest|month|cabin'. */
-export function dormantRouteMonths(
-  db: Db,
-  source: string,
-  origin: string,
-  minEmpty: number,
-  reprobeAfterDays: number,
-  asOf: string,
-): Set<string> {
-  const rows = db
-    .prepare(
-      `SELECT destination, travel_month AS travelMonth, cabin FROM scan_state
-       WHERE source = ? AND origin = ? AND consecutive_empty >= ?
-         AND last_scan_at >= datetime(?, '-' || ? || ' days')`,
-    )
-    .all(source, origin, minEmpty, asOf, reprobeAfterDays) as {
-    destination: string;
-    travelMonth: string;
-    cabin: string;
-  }[];
-  return new Set(rows.map((r) => `${r.destination}|${r.travelMonth}|${r.cabin}`));
-}
-
-/** Distinct capture days our own history has for a route-month — drives both
- *  the wantHistory decision and the observed-vs-google sparkline choice. */
-export function captureDaysForRouteMonth(
-  db: Db,
-  source: string,
-  origin: string,
-  destination: string,
-  cabin: Cabin,
-  travelMonth: string,
-  windowDays: number,
+  tripType: TripType,
+  keepDestinations: string[],
 ): number {
-  const row = db
-    .prepare(
-      `SELECT COUNT(DISTINCT date(captured_at)) AS n FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
-         AND captured_at >= datetime('now', '-' || ? || ' days')`,
-    )
-    .get(source, origin, destination, cabin, travelMonth, windowDays) as { n: number };
-  return row.n;
-}
-
-/** Daily-minimum price series for one route-month-cabin — the deal page's
- *  sparkline. Same daily-minima basis as the baseline computation. */
-export function dailyMinimaSeries(
-  db: Db,
-  source: string,
-  origin: string,
-  destination: string,
-  cabin: Cabin,
-  travelMonth: string,
-  days: number,
-): { date: string; priceCents: number }[] {
+  const ph = keepDestinations.map(() => '?').join(', ') || `''`;
   return db
     .prepare(
-      `SELECT date(captured_at) AS date, MIN(price_cents) AS priceCents
-       FROM price_snapshots
-       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND travel_month = ?
-         AND captured_at >= datetime('now', '-' || ? || ' days')
-       GROUP BY date(captured_at) ORDER BY date`,
+      `UPDATE deals SET status = 'expired'
+       WHERE status = 'active' AND source = ? AND origin = ? AND cabin = ? AND trip_type = ?
+         AND destination NOT IN (${ph})`,
     )
-    .all(source, origin, destination, cabin, travelMonth, days) as {
-    date: string;
-    priceCents: number;
-  }[];
+    .run(source, origin, cabin, tripType, ...keepDestinations).changes;
 }
 
-export interface DealWithPlace extends DealRow {
-  city: string;
-  country: string;
-}
-
-const dealPlaceCols = `d.id, d.source, d.origin, d.destination, d.cabin, d.travel_month AS travelMonth,
-  d.best_price_cents AS bestPriceCents, d.baseline_price_cents AS baselinePriceCents,
-  d.discount_pct AS discountPct, d.score, d.depart_date AS departDate,
-  d.return_date AS returnDate, d.first_seen_at AS firstSeenAt,
-  d.last_seen_at AS lastSeenAt, d.status, d.baseline_source AS baselineSource`;
+export type DealWithPlace = DealRow;
 
 /** Active deals for the given source, restricted to the given cabins (the feed
  *  only shows cabins the user currently monitors). Empty `cabins` → no deals. */
@@ -562,38 +321,26 @@ export function activeDealsWithPlace(db: Db, source: string, cabins: Cabin[]): D
   const placeholders = cabins.map(() => '?').join(', ');
   return db
     .prepare(
-      `SELECT ${dealPlaceCols}, COALESCE(dest.city, d.destination) AS city,
-              COALESCE(dest.country, '') AS country
-       FROM deals d LEFT JOIN destinations dest ON dest.iata = d.destination
-       WHERE d.source = ? AND d.status = 'active' AND d.cabin IN (${placeholders})
-       ORDER BY d.score DESC, d.discount_pct DESC`,
+      `SELECT ${dealCols} FROM deals
+       WHERE source = ? AND status = 'active' AND cabin IN (${placeholders})
+       ORDER BY score DESC, discount_pct DESC`,
     )
     .all(source, ...cabins) as DealWithPlace[];
 }
 
 export function getDealWithPlace(db: Db, id: number): DealWithPlace | null {
-  return (
-    (db
-      .prepare(
-        `SELECT ${dealPlaceCols}, COALESCE(dest.city, d.destination) AS city,
-                COALESCE(dest.country, '') AS country
-         FROM deals d LEFT JOIN destinations dest ON dest.iata = d.destination
-         WHERE d.id = ?`,
-      )
-      .get(id) as DealWithPlace | undefined) ?? null
-  );
+  return getDeal(db, id);
 }
 
-/** Most recent price per distinct date pair on a route+cabin within one travel
- *  month, cheapest first. Scoped to the month so a deal page never mixes in
- *  cheaper dates from other months than the deal it describes. */
+/** Most recent price per distinct date pair for a (destination, cabin,
+ *  trip_type) combo, cheapest first. Powers the fare page's date options. */
 export function recentDateOptions(
   db: Db,
   source: string,
   origin: string,
   destination: string,
   cabin: Cabin,
-  travelMonth: string,
+  tripType: TripType,
   sinceDays: number,
   limit: number,
 ): { departDate: string; returnDate: string; priceCents: number; capturedAt: string }[] {
@@ -607,13 +354,13 @@ export function recentDateOptions(
          ) AS rn
          FROM price_snapshots
          WHERE source = ? AND origin = ? AND destination = ? AND cabin = ?
-           AND travel_month = ?
+           AND trip_type = ?
            AND captured_at >= datetime('now', '-' || ? || ' days')
            AND depart_date >= date('now', 'localtime')
        )
        WHERE rn = 1 ORDER BY price_cents LIMIT ?`,
     )
-    .all(source, origin, destination, cabin, travelMonth, sinceDays, limit) as {
+    .all(source, origin, destination, cabin, tripType, sinceDays, limit) as {
     departDate: string;
     returnDate: string;
     priceCents: number;
@@ -621,28 +368,120 @@ export function recentDateOptions(
   }[];
 }
 
-/** Route-month-cabins whose recent history is deep enough for a baseline,
- *  restricted to the given cabins. */
-export function routeMonthsWithBaseline(
+/** Daily-minimum price series for one combo — the deal page's sparkline (when
+ *  our own observed history has enough shape; Google's series is preferred
+ *  early). Same daily-minima basis as the baseline computation. */
+export function dailyMinimaSeries(
   db: Db,
   source: string,
   origin: string,
-  cabins: Cabin[],
-): number {
-  if (cabins.length === 0) return 0;
-  const placeholders = cabins.map(() => '?').join(', ');
+  destination: string,
+  cabin: Cabin,
+  tripType: TripType,
+  days: number,
+): { date: string; priceCents: number }[] {
+  return db
+    .prepare(
+      `SELECT date(captured_at) AS date, MIN(price_cents) AS priceCents
+       FROM price_snapshots
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?
+         AND captured_at >= datetime('now', '-' || ? || ' days')
+       GROUP BY date(captured_at) ORDER BY date`,
+    )
+    .all(source, origin, destination, cabin, tripType, days) as {
+    date: string;
+    priceCents: number;
+  }[];
+}
+
+/** Distinct (cabin, trip_type) search combos that have produced Google insights
+ *  — the status page's "baseline coverage" numerator (how many of the monitored
+ *  Explore searches are returning scoreable data). */
+export function combosWithBaseline(db: Db, source: string, origin: string): number {
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM (
-         SELECT destination, travel_month, cabin FROM price_snapshots
-         WHERE source = ? AND origin = ? AND cabin IN (${placeholders})
-           AND captured_at >= datetime('now', '-60 days')
-         GROUP BY destination, travel_month, cabin
-         HAVING COUNT(DISTINCT date(captured_at)) >= 10
+         SELECT cabin, trip_type FROM price_insights
+         WHERE source = ? AND origin = ?
+         GROUP BY cabin, trip_type
        )`,
     )
-    .get(source, origin, ...cabins) as { n: number };
+    .get(source, origin) as { n: number };
   return row.n;
+}
+
+// --- Google price insights (baselines + sparkline) ---
+
+export interface PriceInsightsRow {
+  level: 'low' | 'typical' | 'high' | null;
+  medianCents: number | null;
+  /** Parsed series, oldest first; [] when none was captured. */
+  series: { date: string; priceCents: number }[];
+  capturedAt: string;
+}
+
+export function upsertPriceInsights(
+  db: Db,
+  key: { source: string; origin: string; destination: string; cabin: Cabin; tripType: TripType },
+  insights: {
+    level: string | null;
+    history: { date: string; priceCents: number }[] | null;
+    capturedAt: string;
+  },
+): void {
+  const prices = insights.history?.map((p) => p.priceCents) ?? [];
+  const medianCents = prices.length
+    ? [...prices].sort((a, b) => a - b)[Math.floor(prices.length / 2)]!
+    : null;
+  db.prepare(
+    `INSERT INTO price_insights (source, origin, destination, cabin, trip_type,
+       level, median_cents, series_json, captured_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(source, origin, destination, cabin, trip_type) DO UPDATE SET
+       level = excluded.level,
+       -- Keep an earlier series if a later capture didn't fetch one.
+       median_cents = COALESCE(excluded.median_cents, price_insights.median_cents),
+       series_json = COALESCE(excluded.series_json, price_insights.series_json),
+       captured_at = excluded.captured_at`,
+  ).run(
+    key.source,
+    key.origin,
+    key.destination,
+    key.cabin,
+    key.tripType,
+    insights.level,
+    medianCents,
+    insights.history ? JSON.stringify(insights.history.map((p) => [p.date, p.priceCents])) : null,
+    insights.capturedAt,
+  );
+}
+
+export function getPriceInsights(
+  db: Db,
+  source: string,
+  origin: string,
+  destination: string,
+  cabin: Cabin,
+  tripType: TripType,
+): PriceInsightsRow | null {
+  const row = db
+    .prepare(
+      `SELECT level, median_cents AS medianCents, series_json AS seriesJson,
+              captured_at AS capturedAt
+       FROM price_insights
+       WHERE source = ? AND origin = ? AND destination = ? AND cabin = ? AND trip_type = ?`,
+    )
+    .get(source, origin, destination, cabin, tripType) as
+    | { level: PriceInsightsRow['level']; medianCents: number | null; seriesJson: string | null; capturedAt: string }
+    | undefined;
+  if (!row) return null;
+  const series = row.seriesJson
+    ? (JSON.parse(row.seriesJson) as [string, number][]).map(([date, priceCents]) => ({
+        date,
+        priceCents,
+      }))
+    : [];
+  return { level: row.level, medianCents: row.medianCents, series, capturedAt: row.capturedAt };
 }
 
 // --- alerts ---
@@ -794,7 +633,6 @@ export function purgeMockData(db: Db): number {
     const snaps = db.prepare(`DELETE FROM price_snapshots WHERE source = 'mock'`).run().changes;
     db.prepare(`DELETE FROM api_calls WHERE provider = 'mock'`).run();
     db.prepare(`DELETE FROM price_insights WHERE source = 'mock'`).run();
-    db.prepare(`DELETE FROM scan_state WHERE source = 'mock'`).run();
     return deals + snaps;
   })();
 }

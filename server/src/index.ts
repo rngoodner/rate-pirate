@@ -2,9 +2,8 @@ import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { openDb } from './db/db.js';
-import { purgeMockData, seedDestinations } from './db/repo.js';
+import { purgeMockData } from './db/repo.js';
 import { getSettings } from './db/settings.js';
-import { DESTINATION_CATALOG } from './scanner/destinations.js';
 import { startScheduler } from './scanner/scheduler.js';
 import { createProvider } from './providers/index.js';
 import { createEmailSender } from './alerts/email.js';
@@ -14,7 +13,6 @@ import type { AppDeps } from './app.js';
 
 const config = loadConfig();
 const db = openDb(config.DB_PATH);
-seedDestinations(db, DESTINATION_CATALOG);
 const provider = createProvider(config, db);
 const sender = createEmailSender(config);
 

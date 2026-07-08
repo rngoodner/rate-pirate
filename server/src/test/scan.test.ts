@@ -1,22 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
-import {
-  activeDealsWithPlace,
-  dormantRouteMonths,
-  recentEvents,
-  seedDestinations,
-} from '../db/repo.js';
+import { activeDealsWithPlace, recentEvents } from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
-import { DESTINATION_CATALOG } from '../scanner/destinations.js';
 import { SyntheticProvider } from '../providers/mock.js';
-import { runScanBatch, sqliteStamp, type ScanDeps } from '../scanner/scan.js';
+import { runScanBatch, type ScanDeps } from '../scanner/scan.js';
 import { createOnQuotes } from '../pipeline.js';
-import type { FlightPriceProvider, MonthQuery, MonthResult } from '../providers/types.js';
+import type { ExploreQuery, FlightPriceProvider, MonthQuery, MonthResult } from '../providers/types.js';
 
 function makeDeps(provider?: FlightPriceProvider): ScanDeps {
   const db = openDb(':memory:');
-  seedDestinations(db, DESTINATION_CATALOG);
   return { db, config: loadConfig({}), provider: provider ?? new SyntheticProvider({ seed: 7 }) };
 }
 
@@ -24,12 +17,14 @@ describe('runScanBatch guards', () => {
   it('refuses to run two batches concurrently', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
+    const inner = new SyntheticProvider({ seed: 7 });
     const slow: FlightPriceProvider = {
       name: 'mock',
-      exploreSearch: async () => [],
+      // Explore must list destinations so there is something to score.
+      exploreSearch: (q: ExploreQuery) => inner.exploreSearch(q),
       monthQuotes: async (q) => {
         await gate;
-        return new SyntheticProvider({ seed: 7 }).monthQuotes(q);
+        return inner.monthQuotes(q);
       },
     };
     const deps = makeDeps(slow);
@@ -50,9 +45,10 @@ describe('runScanBatch guards', () => {
   });
 
   it('flags a sizable all-zero-price batch as possible scraper breakage', async () => {
+    const inner = new SyntheticProvider({ seed: 7 });
     const emptyProvider: FlightPriceProvider = {
       name: 'mock',
-      exploreSearch: async () => [],
+      exploreSearch: (q: ExploreQuery) => inner.exploreSearch(q),
       monthQuotes: async () => ({ quotes: [], insights: null }),
     };
     const deps = makeDeps(emptyProvider);
@@ -67,18 +63,16 @@ describe('runScanBatch guards', () => {
 
   it('drops a shown deal once its fares vanish (post-scan verification)', async () => {
     const db = openDb(':memory:');
-    seedDestinations(db, [
-      { iata: 'CUN', city: 'Cancún', country: 'Mexico', region: 'americas', tier: 1 },
-    ]);
     updateSettings(db, { dailyCallBudget: 2000, monitoredCabins: ['economy'] });
     const config = loadConfig({});
     const inner = new SyntheticProvider({ seed: 3 });
     let faresGone = false;
     let virtualNow = new Date('2026-07-05T06:00:00Z');
-    // Returns real quotes until we flip `faresGone`, then empties every route-month.
+    // Explore only ever surfaces CUN; its fares are real until we flip `faresGone`.
     const provider: FlightPriceProvider = {
       name: 'mock',
-      exploreSearch: async () => [],
+      exploreSearch: async (q: ExploreQuery) =>
+        (await inner.exploreSearch(q)).filter((d) => d.iata === 'CUN'),
       monthQuotes: async (q: MonthQuery): Promise<MonthResult> =>
         faresGone ? { quotes: [], insights: null } : inner.monthQuotes(q),
     };
@@ -90,21 +84,16 @@ describe('runScanBatch guards', () => {
       onQuotes: createOnQuotes(db, config, { name: 'console', send: async () => {} }, 'mock', () => virtualNow),
     };
 
-    // Build ~2 weeks of history so a baseline forms, then inject a deep drop so
-    // a deal exists and shows on the feed.
-    for (let day = 0; day < 14; day++) {
-      virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + day * 86_400_000);
-      await runScanBatch(deps);
-    }
-    inner.injectDrop('CUN', '2026-08', 0.5);
-    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 14 * 86_400_000);
+    // Inject a deep drop on CUN's Explore month so a deal exists and shows.
+    const cun = (await provider.exploreSearch({ origin: 'ABQ', cabin: 'economy', tripType: 'one_week', adults: 1 }))[0]!;
+    inner.injectDrop('CUN', cun.departDate.slice(0, 7), 0.5);
     await runScanBatch(deps);
     expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(true);
 
     // Fares vanish. batchLimit 0 means the main loop scans nothing, so ONLY the
     // post-scan verification pass runs — and it must drop the now-gone deal.
     faresGone = true;
-    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 15 * 86_400_000);
+    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 86_400_000);
     await runScanBatch(deps, 0);
     expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(
       false,
@@ -112,40 +101,6 @@ describe('runScanBatch guards', () => {
     expect(recentEvents(db, 20).some((e) => /verified \d+ shown deal.*dropped/.test(e.message))).toBe(
       true,
     );
-  }, 30_000);
-
-  it('puts a reliably-empty pair to sleep after 5 empty scans, then re-probes', async () => {
-    // One destination returns fares only for economy; business is always empty.
-    const db = openDb(':memory:');
-    seedDestinations(db, [
-      { iata: 'CUN', city: 'Cancún', country: 'Mexico', region: 'americas', tier: 1 },
-    ]);
-    updateSettings(db, { dailyCallBudget: 2000, monitoredCabins: ['economy', 'business'] });
-    const inner = new SyntheticProvider({ seed: 7 });
-    let virtualNow = new Date('2026-07-05T06:00:00Z');
-    const provider: FlightPriceProvider = {
-      name: 'mock',
-      exploreSearch: async () => [],
-      monthQuotes: async (q: MonthQuery) =>
-        q.cabin === 'business' ? { quotes: [], insights: null } : inner.monthQuotes(q),
-    };
-    const deps = { db, config: loadConfig({}), provider, now: () => virtualNow };
-
-    // Advance ~a day between batches so MIN_STALE_HOURS lets each pair re-plan.
-    const businessDormant = () =>
-      dormantRouteMonths(db, 'mock', 'ABQ', 5, 14, sqliteStamp(virtualNow));
-    for (let day = 0; day < 6; day++) {
-      virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + day * 86_400_000);
-      await runScanBatch(deps);
-    }
-    // Every business route-month (6 months) has gone dormant; economy never does.
-    const dormant = businessDormant();
-    expect(dormant.size).toBe(6);
-    expect([...dormant].every((k) => k.endsWith('|business'))).toBe(true);
-
-    // 20 days later the rest window has lapsed → nothing suppressed (re-probe).
-    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 30 * 86_400_000);
-    expect(businessDormant().size).toBe(0);
   }, 30_000);
 
   it('enforces the budget against the LOCAL day when no virtual clock is injected', async () => {
@@ -165,8 +120,9 @@ describe('runScanBatch guards', () => {
     expect(result.skippedReason).toBe('budget_exhausted');
 
     // Sanity: with budget headroom the real-clock path scans normally.
-    updateSettings(deps.db, { dailyCallBudget: 12 });
+    updateSettings(deps.db, { dailyCallBudget: 40 });
     const ok = await runScanBatch(deps);
-    expect(ok.scanned).toBe(2);
+    expect(ok.skippedReason).toBeUndefined();
+    expect(ok.scanned).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { DealDetail as DealDetailType } from '@rate-pirate/shared';
+import { TRIP_TYPE_LABELS } from '@rate-pirate/shared';
 import { api, monthLabel, shortDate, usd } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
 import ScoreBadge from '../components/ScoreBadge';
@@ -50,7 +51,8 @@ export default function DealDetail() {
           <CabinBadge cabin={deal.cabin} />
         </div>
         <p className="text-sm text-gray-600">
-          {deal.country} • {monthLabel(deal.travelMonth)} • <ScoreBadge score={deal.score} />
+          {deal.country} • {TRIP_TYPE_LABELS[deal.tripType]} • {monthLabel(deal.travelMonth)} •{' '}
+          <ScoreBadge score={deal.score} />
         </p>
       </header>
 

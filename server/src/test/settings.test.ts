@@ -19,9 +19,8 @@ describe('settings', () => {
       alertMinDiscount: 0.2,
       dealMinDiscount: 0.05,
       alertCooldownDays: 7,
-      scanHorizonMonths: 6,
-      tripNights: 7,
-      departureDow: 6,
+      tripTypes: ['one_week'],
+      adults: 1,
     });
   });
 
@@ -47,17 +46,15 @@ describe('settings', () => {
       alertMinDiscount: 0.15,
       dealMinDiscount: 0.1,
       alertCooldownDays: 3,
-      scanHorizonMonths: 4,
-      tripNights: 10,
-      departureDow: 3,
+      tripTypes: ['weekend', 'two_weeks'],
+      adults: 3,
     });
     const s = getSettings(db, config);
     expect(s.alertMinDiscount).toBe(0.15);
     expect(s.dealMinDiscount).toBe(0.1);
     expect(s.alertCooldownDays).toBe(3);
-    expect(s.scanHorizonMonths).toBe(4);
-    expect(s.tripNights).toBe(10);
-    expect(s.departureDow).toBe(3);
+    expect(s.tripTypes).toEqual(['weekend', 'two_weeks']);
+    expect(s.adults).toBe(3);
   });
 
   it('partial update leaves other keys alone', () => {
