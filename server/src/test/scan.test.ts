@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
-import { dormantRouteMonths, recentEvents, seedDestinations } from '../db/repo.js';
+import {
+  activeDealsWithPlace,
+  dormantRouteMonths,
+  recentEvents,
+  seedDestinations,
+} from '../db/repo.js';
 import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
 import { DESTINATION_CATALOG } from '../scanner/destinations.js';
 import { SyntheticProvider } from '../providers/mock.js';
 import { runScanBatch, sqliteStamp, type ScanDeps } from '../scanner/scan.js';
-import type { FlightPriceProvider, MonthQuery } from '../providers/types.js';
+import { createOnQuotes } from '../pipeline.js';
+import type { FlightPriceProvider, MonthQuery, MonthResult } from '../providers/types.js';
 
 function makeDeps(provider?: FlightPriceProvider): ScanDeps {
   const db = openDb(':memory:');
@@ -56,6 +62,54 @@ describe('runScanBatch guards', () => {
     expect(anomaly!.scope).toBe('batch');
     expect(anomaly!.message).toContain('zero prices');
   });
+
+  it('drops a shown deal once its fares vanish (post-scan verification)', async () => {
+    const db = openDb(':memory:');
+    seedDestinations(db, [
+      { iata: 'CUN', city: 'Cancún', country: 'Mexico', region: 'americas', tier: 1 },
+    ]);
+    updateSettings(db, { dailyCallBudget: 2000, monitoredCabins: ['economy'] });
+    const config = loadConfig({});
+    const inner = new SyntheticProvider({ seed: 3 });
+    let faresGone = false;
+    let virtualNow = new Date('2026-07-05T06:00:00Z');
+    // Returns real quotes until we flip `faresGone`, then empties every route-month.
+    const provider: FlightPriceProvider = {
+      name: 'mock',
+      monthQuotes: async (q: MonthQuery): Promise<MonthResult> =>
+        faresGone ? { quotes: [], insights: null } : inner.monthQuotes(q),
+    };
+    const deps: ScanDeps = {
+      db,
+      config,
+      provider,
+      now: () => virtualNow,
+      onQuotes: createOnQuotes(db, config, { name: 'console', send: async () => {} }, 'mock', () => virtualNow),
+    };
+
+    // Build ~2 weeks of history so a baseline forms, then inject a deep drop so
+    // a deal exists and shows on the feed.
+    for (let day = 0; day < 14; day++) {
+      virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + day * 86_400_000);
+      await runScanBatch(deps);
+    }
+    inner.injectDrop('CUN', '2026-08', 0.5);
+    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 14 * 86_400_000);
+    await runScanBatch(deps);
+    expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(true);
+
+    // Fares vanish. batchLimit 0 means the main loop scans nothing, so ONLY the
+    // post-scan verification pass runs — and it must drop the now-gone deal.
+    faresGone = true;
+    virtualNow = new Date(Date.parse('2026-07-05T06:00:00Z') + 15 * 86_400_000);
+    await runScanBatch(deps, 0);
+    expect(activeDealsWithPlace(db, 'mock', ['economy']).some((d) => d.destination === 'CUN')).toBe(
+      false,
+    );
+    expect(recentEvents(db, 20).some((e) => /verified \d+ shown deal.*dropped/.test(e.message))).toBe(
+      true,
+    );
+  }, 30_000);
 
   it('puts a reliably-empty pair to sleep after 5 empty scans, then re-probes', async () => {
     // One destination returns fares only for economy; business is always empty.

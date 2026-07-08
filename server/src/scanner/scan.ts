@@ -1,12 +1,16 @@
 import type { Config } from '../config.js';
 import type { Db } from '../db/db.js';
 import {
+  activeDealsWithPlace,
   activeDestinations,
   apiCallsToday,
   captureDaysForRouteMonth,
   dormantRouteMonths,
+  expireDeal,
   expireDealsBeforeMonth,
   expireDealsOutsideUniverse,
+  getDeal,
+  getDealByRouteMonth,
   insertSnapshot,
   latestCaptureByRouteMonth,
   logEvent,
@@ -159,85 +163,14 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
       });
       break;
     }
-    const capturedAt = sqliteStamp(now());
     try {
-      // Fetch Google's history graph only while this route-month lacks its own
-      // baseline — the click cost decays to ~zero as real history accumulates.
-      const wantHistory =
-        captureDaysForRouteMonth(
-          db,
-          provider.name,
-          settings.homeAirport,
-          task.destination,
-          task.cabin,
-          task.month,
-          BASELINE_WINDOWS.MONTH_WINDOW_DAYS,
-        ) < BASELINE_WINDOWS.MONTH_MIN_DAYS;
-      const { quotes, insights } = await provider.monthQuotes({
-        origin: settings.homeAirport,
-        destination: task.destination,
-        cabin: task.cabin,
-        month: task.month,
-        wantHistory,
-      });
-      if (insights) {
-        upsertPriceInsights(
-          db,
-          {
-            source: provider.name,
-            origin: settings.homeAirport,
-            destination: task.destination,
-            cabin: task.cabin,
-            travelMonth: task.month,
-          },
-          { level: insights.level, history: insights.history, capturedAt },
-        );
-      }
-      // The real provider logs its own calls (with HTTP status); the mock doesn't.
-      if (provider.name === 'mock') {
-        recordApiCall(db, {
-          provider: 'mock',
-          endpoint: 'monthQuotes',
-          route: `${settings.homeAirport}-${task.destination} ${task.month} ${task.cabin}`,
-          ok: true,
-          calledAt: capturedAt,
-        });
-      }
+      const r = await scanRouteMonth(deps, settings, task, now);
       scanned++;
-      // Track empty streaks so reliably fare-less pairs go dormant (see planner).
-      recordScanOutcome(
-        db,
-        {
-          source: provider.name,
-          origin: settings.homeAirport,
-          destination: task.destination,
-          cabin: task.cabin,
-          travelMonth: task.month,
-        },
-        quotes.length > 0,
-        capturedAt,
-      );
+      snapshots += r.snapshots;
       const tally = byCabin.get(task.cabin) ?? { scanned: 0, snapshots: 0 };
       tally.scanned++;
-      tally.snapshots += Math.min(quotes.length, MAX_SNAPSHOTS_PER_SCAN);
+      tally.snapshots += r.snapshots;
       byCabin.set(task.cabin, tally);
-      for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
-        insertSnapshot(db, {
-          origin: q.origin,
-          destination: q.destination,
-          cabin: q.cabin,
-          travelMonth: task.month,
-          departDate: q.departDate,
-          returnDate: q.returnDate,
-          priceCents: q.priceCents,
-          stops: q.stops,
-          carrier: q.carrier,
-          source: provider.name,
-          capturedAt,
-        });
-        snapshots++;
-      }
-      if (quotes.length > 0) await deps.onQuotes?.(task, quotes);
     } catch (err) {
       failures++;
       console.error(`scan failed for ${task.destination} ${task.month} ${task.cabin}:`, err);
@@ -248,9 +181,56 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
           err instanceof Error ? err.message : String(err)
         }`,
         detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
-        at: capturedAt,
+        at: sqliteStamp(now()),
       });
     }
+  }
+
+  // Verify the deals the feed is currently showing whose route-month this batch
+  // didn't already scan, so a fare that has since vanished is dropped (or its
+  // price refreshed) instead of lingering. The active-deal count stays small,
+  // so re-scraping them each batch is cheap. A re-scrape with fares runs normal
+  // detection (refresh or expire vs the floor); a re-scrape with NO fares expires
+  // the deal outright — the shown fare is gone.
+  const scannedKeys = new Set(tasks.map((t) => `${t.destination}|${t.month}|${t.cabin}`));
+  const horizon = new Set(horizonMonths(calRef, settings.scanHorizonMonths));
+  const toVerify = activeDealsWithPlace(db, provider.name, settings.monitoredCabins).filter(
+    (d) =>
+      horizon.has(d.travelMonth) &&
+      !scannedKeys.has(`${d.destination}|${d.travelMonth}|${d.cabin}`),
+  );
+  let verified = 0;
+  let dropped = 0;
+  for (const d of toVerify) {
+    const spent = apiCallsToday(db, provider.name, virtualClock ? sqliteStamp(now()) : undefined);
+    if (spent >= settings.dailyCallBudget) break;
+    const task: RouteMonthTask = { destination: d.destination, cabin: d.cabin, month: d.travelMonth, tier: 0 };
+    try {
+      const r = await scanRouteMonth(deps, settings, task, now);
+      verified++;
+      snapshots += r.snapshots;
+      // scanRouteMonth expired it if fares vanished or recovered above the floor.
+      if (getDeal(db, d.id)?.status === 'expired') dropped++;
+    } catch (err) {
+      failures++;
+      logEvent(db, {
+        level: 'error',
+        scope: 'scan',
+        message: `verify ${settings.homeAirport}→${d.destination} ${d.travelMonth} ${d.cabin}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        detail: err instanceof Error ? (err.stack ?? String(err)) : String(err),
+        at: sqliteStamp(now()),
+      });
+    }
+  }
+  if (verified > 0) {
+    logEvent(db, {
+      level: 'info',
+      scope: 'batch',
+      message: `verified ${verified} shown deal${verified === 1 ? '' : 's'}${dropped ? `, dropped ${dropped} no longer available` : ''}`,
+      at: sqliteStamp(now()),
+    });
   }
 
   logEvent(db, {
@@ -288,6 +268,88 @@ async function runBatch(deps: ScanDeps, batchLimit?: number): Promise<ScanResult
     }
   }
   return { planned: tasks.length, scanned, snapshots, failures };
+}
+
+/** Scrape one route-month-cabin and fold the result into the DB: insights,
+ *  snapshots, empty-streak state, and deal detection/alerting (via onQuotes).
+ *  Throws on scrape failure so the caller can count/log it. Shared by the main
+ *  batch loop and the shown-deal verification pass. */
+async function scanRouteMonth(
+  deps: ScanDeps,
+  settings: ReturnType<typeof getSettings>,
+  task: RouteMonthTask,
+  now: () => Date,
+): Promise<{ snapshots: number; hadQuotes: boolean }> {
+  const { db, provider } = deps;
+  const capturedAt = sqliteStamp(now());
+  const key = {
+    source: provider.name,
+    origin: settings.homeAirport,
+    destination: task.destination,
+    cabin: task.cabin,
+    travelMonth: task.month,
+  };
+  // Fetch Google's history graph only while this route-month lacks its own
+  // baseline — the click cost decays to ~zero as real history accumulates.
+  const wantHistory =
+    captureDaysForRouteMonth(
+      db,
+      provider.name,
+      settings.homeAirport,
+      task.destination,
+      task.cabin,
+      task.month,
+      BASELINE_WINDOWS.MONTH_WINDOW_DAYS,
+    ) < BASELINE_WINDOWS.MONTH_MIN_DAYS;
+  const { quotes, insights } = await provider.monthQuotes({
+    origin: settings.homeAirport,
+    destination: task.destination,
+    cabin: task.cabin,
+    month: task.month,
+    wantHistory,
+  });
+  if (insights) {
+    upsertPriceInsights(db, key, { level: insights.level, history: insights.history, capturedAt });
+  }
+  // The real provider logs its own calls (with HTTP status); the mock doesn't.
+  if (provider.name === 'mock') {
+    recordApiCall(db, {
+      provider: 'mock',
+      endpoint: 'monthQuotes',
+      route: `${settings.homeAirport}-${task.destination} ${task.month} ${task.cabin}`,
+      ok: true,
+      calledAt: capturedAt,
+    });
+  }
+  // Track empty streaks so reliably fare-less pairs go dormant (see planner).
+  recordScanOutcome(db, key, quotes.length > 0, capturedAt);
+  let snapshots = 0;
+  for (const q of quotes.slice(0, MAX_SNAPSHOTS_PER_SCAN)) {
+    insertSnapshot(db, {
+      origin: q.origin,
+      destination: q.destination,
+      cabin: q.cabin,
+      travelMonth: task.month,
+      departDate: q.departDate,
+      returnDate: q.returnDate,
+      priceCents: q.priceCents,
+      stops: q.stops,
+      carrier: q.carrier,
+      source: provider.name,
+      capturedAt,
+    });
+    snapshots++;
+  }
+  if (quotes.length > 0) {
+    await deps.onQuotes?.(task, quotes); // detection: refresh or expire vs the floor
+  } else {
+    // No fares at all: any deal we were showing for this route-month is gone.
+    // (Detection can't do this — with zero quotes there's no fresh price to
+    // compare.) Applies to the main loop and the verify pass alike.
+    const existing = getDealByRouteMonth(db, provider.name, settings.homeAirport, task.destination, task.cabin, task.month);
+    if (existing?.status === 'active') expireDeal(db, existing.id);
+  }
+  return { snapshots, hadQuotes: quotes.length > 0 };
 }
 
 export function sqliteStamp(d: Date): string {
