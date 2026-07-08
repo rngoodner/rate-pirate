@@ -1,4 +1,10 @@
-import { CABIN_LABELS, googleFlightsUrl, type Cabin } from '@rate-pirate/shared';
+import {
+  CABIN_LABELS,
+  googleFlightsUrl,
+  TRIP_TYPE_LABELS,
+  type Cabin,
+  type TripType,
+} from '@rate-pirate/shared';
 
 export interface AlertContent {
   origin: string;
@@ -6,6 +12,7 @@ export interface AlertContent {
   city: string;
   country: string;
   cabin: Cabin;
+  tripType: TripType;
   travelMonth: string; // 'YYYY-MM'
   priceCents: number;
   baselineCents: number;
@@ -20,7 +27,7 @@ export interface AlertContent {
 export function alertSubject(a: AlertContent): string {
   const cabin = a.cabin === 'economy' ? '' : ` ${CABIN_LABELS[a.cabin]}`;
   const saved = usd(a.baselineCents - a.priceCents);
-  return `✈ ${a.origin} → ${a.city}${cabin} ${usd(a.priceCents)} — save ${saved} (score ${a.score}) — ${monthLabel(a.travelMonth)}`;
+  return `✈ ${a.origin} → ${a.city}${cabin} ${usd(a.priceCents)} — save ${saved} (score ${a.score}) — ${TRIP_TYPE_LABELS[a.tripType]}, ${monthLabel(a.travelMonth)}`;
 }
 
 export function alertHtml(a: AlertContent): string {
@@ -30,7 +37,7 @@ export function alertHtml(a: AlertContent): string {
   <div style="max-width:440px;margin:0 auto;background:#fff;border-radius:16px;padding:24px">
     <p style="margin:0 0 16px;font-weight:800;font-size:18px">🏴‍☠️ Rate Pirate</p>
     <p style="margin:0;font-size:22px;font-weight:800">${esc(a.city)}</p>
-    <p style="margin:4px 0 12px;color:#6b7280">${esc(a.country)} • ${monthLabel(a.travelMonth)} • ${CABIN_LABELS[a.cabin]}</p>
+    <p style="margin:4px 0 12px;color:#6b7280">${esc(a.country)} • ${TRIP_TYPE_LABELS[a.tripType]} • ${monthLabel(a.travelMonth)} • ${CABIN_LABELS[a.cabin]}</p>
     <p style="margin:0 0 4px">
       <span style="background:#e7f8ee;color:#16a34a;font-weight:700;border-radius:8px;padding:4px 10px;font-size:14px">
         ${a.score}% deal score
