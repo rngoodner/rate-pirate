@@ -448,7 +448,7 @@ function Advanced({
   async function resetBudget() {
     if (
       !window.confirm(
-        "Reset today's call count to 0? Scanning will resume immediately, and today's budget cap starts over.",
+        "Reset today's call count to 0? This doesn't start a scan — it just clears the budget so the next scheduled batch (or a manual scan) can run today.",
       )
     )
       return;
