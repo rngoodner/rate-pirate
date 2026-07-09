@@ -11,7 +11,13 @@ export default function DealCard({ deal }: { deal: Deal }) {
   return (
     <Link
       to={`/deals/${deal.id}`}
-      className="block rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
+      // Alert-eligible deals get a tasteful amber ring + soft glow so they stand
+      // out in the feed (they'd trigger an email).
+      className={`block rounded-2xl bg-white p-4 active:bg-gray-50 ${
+        deal.alertEligible
+          ? 'shadow-[0_0_0_4px_rgba(245,158,11,0.12)] ring-2 ring-amber-400'
+          : 'shadow-sm'
+      }`}
     >
       <div className="flex items-start justify-between gap-2">
         <p className="flex items-center gap-2 text-lg font-extrabold">

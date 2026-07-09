@@ -71,6 +71,26 @@ describe('API routes', () => {
     expect(seen.isNew).toBe(false);
   });
 
+  it('flags alertEligible by score, discount, and the max-price cap', async () => {
+    const { app, db } = makeApp();
+    seedDeal(db, 'NAP', 88); // score 88 ≥ 85, discount 0.35 ≥ 0.2, no cap → eligible
+    seedDeal(db, 'CUN', 80); // score 80 < 85 threshold → not eligible
+    const find = (deals: Deal[], dst: string) => deals.find((d) => d.destination === dst)!;
+
+    let deals = (await (await app.request('/api/deals')).json()) as Deal[];
+    expect(find(deals, 'NAP').alertEligible).toBe(true);
+    expect(find(deals, 'CUN').alertEligible).toBe(false);
+
+    // A max-price cap below the deal's party total ($650) disqualifies it.
+    await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alertMaxPriceCents: 600_00 }),
+    });
+    deals = (await (await app.request('/api/deals')).json()) as Deal[];
+    expect(find(deals, 'NAP').alertEligible).toBe(false);
+  });
+
   it('GET /api/deals/:id returns the single fare with flight detail and a booking link', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);

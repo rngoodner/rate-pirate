@@ -9,6 +9,7 @@ import {
   type Deal,
   type DealDetail,
   type ScanStatus,
+  type Settings,
 } from '@rate-pirate/shared';
 import type { AppDeps } from '../app.js';
 import {
@@ -69,7 +70,9 @@ const settingsPatchSchema = z
 // Deals are stored at 1 adult (that's where Google's price history lives).
 // Party size is a pure display multiplier — fares scale linearly, so the score
 // and discount are unchanged; only the shown totals scale.
-function toWireDeal(d: DealWithPlace, adults: number): Deal {
+function toWireDeal(d: DealWithPlace, settings: Settings): Deal {
+  const { adults } = settings;
+  const partyPrice = d.bestPriceCents * adults;
   return {
     id: d.id,
     origin: d.origin,
@@ -79,7 +82,7 @@ function toWireDeal(d: DealWithPlace, adults: number): Deal {
     cabin: d.cabin,
     tripType: d.tripType,
     travelMonth: d.travelMonth,
-    bestPriceCents: d.bestPriceCents * adults,
+    bestPriceCents: partyPrice,
     baselinePriceCents: d.baselinePriceCents * adults,
     discountPct: d.discountPct,
     score: d.score,
@@ -90,6 +93,12 @@ function toWireDeal(d: DealWithPlace, adults: number): Deal {
     status: d.status,
     // Seen exactly once so far → it debuted on the most recent scan.
     isNew: d.firstSeenAt === d.lastSeenAt,
+    // Meets the deal-level email bars (excludes recipient/cooldown, which are
+    // delivery concerns, not properties of the deal). Mirrors maybeAlert.
+    alertEligible:
+      d.score >= settings.alertThreshold &&
+      d.discountPct >= settings.alertMinDiscount &&
+      (settings.alertMaxPriceCents === 0 || partyPrice <= settings.alertMaxPriceCents),
     adults,
   };
 }
@@ -101,10 +110,13 @@ export function apiRoutes(deps: AppDeps): Hono {
   api.get('/health', (c) => c.json({ ok: true }));
 
   api.get('/deals', (c) => {
-    const { monitoredCabins, tripTypes, adults } = getSettings(db, config);
-    const deals: Deal[] = activeDealsWithPlace(db, deps.provider.name, monitoredCabins, tripTypes).map(
-      (d) => toWireDeal(d, adults),
-    );
+    const settings = getSettings(db, config);
+    const deals: Deal[] = activeDealsWithPlace(
+      db,
+      deps.provider.name,
+      settings.monitoredCabins,
+      settings.tripTypes,
+    ).map((d) => toWireDeal(d, settings));
     return c.json(deals);
   });
 
@@ -113,7 +125,8 @@ export function apiRoutes(deps: AppDeps): Hono {
     if (!Number.isInteger(id)) return c.json({ error: 'invalid id' }, 400);
     const deal = getDealWithPlace(db, id);
     if (!deal) return c.json({ error: 'deal not found' }, 404);
-    const { adults } = getSettings(db, config);
+    const settings = getSettings(db, config);
+    const { adults } = settings;
 
     // The detailed view of THIS one fare: the deal's flight specifics (from the
     // snapshot backing it) plus Google's price history/verdict for the trip.
@@ -127,7 +140,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       deal.tripType,
     );
     const detail: DealDetail = {
-      ...toWireDeal(deal, adults),
+      ...toWireDeal(deal, settings),
       nights: Math.round((Date.parse(deal.returnDate) - Date.parse(deal.departDate)) / 86_400_000),
       stops: flight?.stops ?? null,
       carrier: flight?.carrier ?? null,

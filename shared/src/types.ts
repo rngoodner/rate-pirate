@@ -179,6 +179,11 @@ export interface Deal {
   /** True when this deal first appeared on the most recent scan (seen exactly
    *  once so far) — drives the "New" badge. Clears once it survives a later scan. */
   isNew: boolean;
+  /** True when the deal meets the email-alert bars: score ≥ alert threshold,
+   *  discount ≥ min discount, and (if a cap is set) party price ≤ max price.
+   *  Drives the "alert-eligible" card highlight. Delivery-only checks (recipient,
+   *  cooldown) are excluded — they aren't properties of the deal. */
+  alertEligible: boolean;
   /** Party size the displayed price is quoted for (prices are stored at 1 adult
    *  and scaled by this at display time). */
   adults: number;
