@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  GoogleFlightsProvider,
   parseExploreRpc,
   parseHistoryLabel,
   parsePriceLevel,
@@ -8,6 +9,8 @@ import {
   representativeDates,
   withWorldwideBounds,
 } from '../providers/google-flights.js';
+import { ProviderError } from '../providers/types.js';
+import type { ExploreDestination, ExploreQuery } from '../providers/types.js';
 
 describe('parseExploreRpc', () => {
   // Minimal fixture matching the real batchexecute envelope: )]}' prefix, a
@@ -122,6 +125,51 @@ describe('parseHistoryLabel', () => {
     expect(parseHistoryLabel('From 885 US dollars round trip total.', asOf)).toBeNull();
     expect(parseHistoryLabel('61 days ago', asOf)).toBeNull();
     expect(parseHistoryLabel('$494', asOf)).toBeNull();
+  });
+});
+
+describe('exploreSearch retry', () => {
+  const q: ExploreQuery = { origin: 'ABQ', cabin: 'economy', tripType: 'weekend', adults: 1 };
+  const dest: ExploreDestination = {
+    iata: 'LHR', city: 'London', country: 'United Kingdom', departDate: '2026-08-21', returnDate: '2026-08-24',
+  };
+  // Stub the private per-attempt method so the retry loop runs without a browser.
+  const stub = (p: GoogleFlightsProvider, fn: () => Promise<ExploreDestination[]>) => {
+    (p as unknown as { exploreSearchOnce: () => Promise<ExploreDestination[]> }).exploreSearchOnce = fn;
+  };
+
+  it('retries a transient RPC-capture failure and succeeds on a later attempt', async () => {
+    const p = new GoogleFlightsProvider('/no/chrome');
+    let calls = 0;
+    stub(p, async () => {
+      calls++;
+      if (calls < 2) throw new ProviderError('explore RPC not captured for ABQ weekend economy');
+      return [dest];
+    });
+    expect(await p.exploreSearch(q)).toEqual([dest]);
+    expect(calls).toBe(2);
+  });
+
+  it('gives up after the attempt cap and rethrows the last error', async () => {
+    const p = new GoogleFlightsProvider('/no/chrome');
+    let calls = 0;
+    stub(p, async () => {
+      calls++;
+      throw new ProviderError('explore RPC not captured');
+    });
+    await expect(p.exploreSearch(q)).rejects.toThrow('RPC not captured');
+    expect(calls).toBe(3); // EXPLORE_ATTEMPTS
+  });
+
+  it('does not retry a consent wall — it needs manual attention', async () => {
+    const p = new GoogleFlightsProvider('/no/chrome');
+    let calls = 0;
+    stub(p, async () => {
+      calls++;
+      throw new ProviderError('google consent wall — needs manual attention');
+    });
+    await expect(p.exploreSearch(q)).rejects.toThrow('consent wall');
+    expect(calls).toBe(1);
   });
 });
 

@@ -38,6 +38,9 @@ const MIN_CALL_GAP_MS = 2000;
 const CALL_JITTER_MS = 1500;
 const BROWSER_IDLE_CLOSE_MS = 3 * 60_000;
 const RESULT_TIMEOUT_MS = 30_000;
+// Explore RPC capture is intermittent (transient blocks / interstitials); a
+// reload usually succeeds. Try this many times before giving up on a combo.
+const EXPLORE_ATTEMPTS = 3;
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const MAX_QUOTES = 5;
@@ -313,6 +316,23 @@ export class GoogleFlightsProvider implements FlightPriceProvider {
    *  from the FlightsFrontendUi RPC response. Prices are fetched separately by
    *  the scanner via `monthQuotes` with the returned exact dates. */
   async exploreSearch(q: ExploreQuery): Promise<ExploreDestination[]> {
+    // Retry the whole load+capture a few times: "RPC not captured" and nav
+    // errors are transient (a reload usually works), mirroring the single retry
+    // monthQuotes does. Each attempt throttles (min gap + jitter), so retries are
+    // naturally spaced. A consent wall is NOT transient — surface it immediately.
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < EXPLORE_ATTEMPTS; attempt++) {
+      try {
+        return await this.exploreSearchOnce(q);
+      } catch (err) {
+        lastErr = err;
+        if (err instanceof ProviderError && /consent wall/i.test(err.message)) throw err;
+      }
+    }
+    throw lastErr;
+  }
+
+  private async exploreSearchOnce(q: ExploreQuery): Promise<ExploreDestination[]> {
     await this.throttle();
     // Hold the idle-close timer for the whole call; pair inFlight++ with the
     // finally so a newPage() throw can't leak the counter (which would pin the
