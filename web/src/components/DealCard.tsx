@@ -14,7 +14,14 @@ export default function DealCard({ deal }: { deal: Deal }) {
       className="block rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-lg font-extrabold">{deal.city}</p>
+        <p className="flex items-center gap-2 text-lg font-extrabold">
+          {deal.city}
+          {deal.isNew && (
+            <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              New
+            </span>
+          )}
+        </p>
         <CabinBadge cabin={deal.cabin} />
       </div>
       <p className="text-sm text-gray-500">

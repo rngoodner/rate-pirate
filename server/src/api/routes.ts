@@ -88,6 +88,8 @@ function toWireDeal(d: DealWithPlace, adults: number): Deal {
     firstSeenAt: d.firstSeenAt,
     lastSeenAt: d.lastSeenAt,
     status: d.status,
+    // Seen exactly once so far → it debuted on the most recent scan.
+    isNew: d.firstSeenAt === d.lastSeenAt,
     adults,
   };
 }

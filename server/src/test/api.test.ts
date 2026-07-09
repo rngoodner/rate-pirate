@@ -54,6 +54,23 @@ describe('API routes', () => {
     expect(deals[1]).toMatchObject({ city: 'Naples', country: 'Italy', score: 88 });
   });
 
+  it('flags a deal as isNew until it survives a later scan', async () => {
+    const { app, db } = makeApp();
+    seedDeal(db, 'NAP', 88); // debut: first_seen_at == last_seen_at
+    const newDeal = ((await (await app.request('/api/deals')).json()) as Deal[])[0]!;
+    expect(newDeal.isNew).toBe(true);
+
+    // A later scan re-confirms it → last_seen_at advances past first_seen_at.
+    upsertDeal(db, {
+      source: 'mock', origin: 'ABQ', destination: 'NAP', city: 'Naples', country: 'Italy',
+      cabin: 'economy', tripType: 'one_week', travelMonth: '2099-08',
+      bestPriceCents: 64000, baselinePriceCents: 100000, discountPct: 0.36, score: 88,
+      departDate: '2099-08-18', returnDate: '2099-08-26', seenAt: '2026-06-21 08:00:00',
+    });
+    const seen = ((await (await app.request('/api/deals')).json()) as Deal[])[0]!;
+    expect(seen.isNew).toBe(false);
+  });
+
   it('GET /api/deals/:id returns the single fare with flight detail and a booking link', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);

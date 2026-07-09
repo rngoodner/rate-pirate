@@ -176,6 +176,9 @@ export interface Deal {
   firstSeenAt: string;
   lastSeenAt: string;
   status: 'active' | 'expired';
+  /** True when this deal first appeared on the most recent scan (seen exactly
+   *  once so far) — drives the "New" badge. Clears once it survives a later scan. */
+  isNew: boolean;
   /** Party size the displayed price is quoted for (prices are stored at 1 adult
    *  and scaled by this at display time). */
   adults: number;
