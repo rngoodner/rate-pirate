@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 
 const tabs = [
   { to: '/', label: 'Flight deals', icon: '✈️' },
@@ -6,6 +6,7 @@ const tabs = [
 ];
 
 export default function TabBar() {
+  const { pathname } = useLocation();
   return (
     <nav className="fixed inset-x-0 bottom-0 mx-auto max-w-lg border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]">
       <div className="flex justify-around">
@@ -14,6 +15,11 @@ export default function TabBar() {
             key={tab.to}
             to={tab.to}
             end={tab.to === '/'}
+            // Native convention: tapping the tab you're already on scrolls back to
+            // the top (re-navigating to the same route is a no-op, so do it here).
+            onClick={() => {
+              if (pathname === tab.to) window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
             className={({ isActive }) =>
               `flex flex-col items-center gap-1 px-6 py-3 text-xs font-medium ${
                 isActive ? 'text-brand' : 'text-gray-500'
