@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CABIN_LABELS, type Deal, type Settings } from '@rate-pirate/shared';
-import { api } from '../api/client';
+import { CABIN_LABELS, type Deal, type ScanStatus, type Settings } from '@rate-pirate/shared';
+import { api, timeAgo, timeUntil } from '../api/client';
 import { useAutoRefresh } from '../useAutoRefresh';
 import DealCard from '../components/DealCard';
 import StatusBanner from '../components/StatusBanner';
@@ -13,9 +13,20 @@ function cabinSummary(settings: Settings | null): string {
   return `${cabins.length} cabins`;
 }
 
+/** Freshness line under the title: when prices were last checked and when the
+ *  next scan runs. Recomputed on every render (a 1s ticker drives it), so it
+ *  counts down live. */
+function freshness(status: ScanStatus | null): string {
+  if (!status) return '';
+  if (!status.nextBatchAt) return 'Scanning paused';
+  const next = `next scan ${timeUntil(status.nextBatchAt)}`;
+  return status.lastScanAt ? `Checked ${timeAgo(status.lastScanAt)} · ${next}` : next;
+}
+
 export default function DealsFeed() {
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [status, setStatus] = useState<ScanStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -27,15 +38,25 @@ export default function DealsFeed() {
       })
       .catch((e: Error) => setError(e.message));
     api.settings().then(setSettings).catch(() => {});
+    api.status().then(setStatus).catch(() => {});
   }, []);
   useEffect(load, [load]);
   // Poll while open, too — a feed left on screen must not go stale forever.
   useAutoRefresh(load, 60_000);
 
+  // Tick every second so the "next scan in …" countdown advances on its own,
+  // independent of the network poll (and even if a poll is slow or fails).
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <div>
       <header className="bg-brand-pale px-4 pb-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <h1 className="text-xl font-black tracking-tight">🏴‍☠️ Rate Pirate</h1>
+        {status && <p className="mt-0.5 text-xs text-gray-500">{freshness(status)}</p>}
         <Link
           to="/settings"
           className="mt-3 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-sm active:bg-gray-50"
