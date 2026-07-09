@@ -273,6 +273,8 @@ export interface ScanStatus {
   lastScanAt: string | null;
   callsToday: number;
   dailyCallBudget: number;
+  /** A scan batch is running right now (prices are being checked). */
+  scanning: boolean;
   activeDeals: number;
   /** Error events logged today (local day). */
   errorsToday: number;

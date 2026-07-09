@@ -5,6 +5,7 @@ import { updateSettings } from '../db/settings.js';
 import { loadConfig } from '../config.js';
 import { SyntheticProvider } from '../providers/mock.js';
 import {
+  isScanning,
   requestUniverseRescan,
   runDealVerification,
   runScanBatch,
@@ -95,6 +96,27 @@ describe('runScanBatch guards', () => {
     await secondDone; // deterministically confirms the rescan actually ran
     await new Promise((r) => setTimeout(r, 50)); // let it finish (release the mutex)
     expect(explores).toBe(2);
+  }, 30_000);
+
+  it('isScanning() is true only while a batch is in flight', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const inner = new SyntheticProvider({ seed: 7 });
+    const provider: FlightPriceProvider = {
+      name: 'mock',
+      exploreSearch: async (q: ExploreQuery) => {
+        await gate; // hold the batch in flight
+        return inner.exploreSearch(q);
+      },
+      monthQuotes: (q: MonthQuery) => inner.monthQuotes(q),
+    };
+    const deps = makeDeps(provider);
+    expect(isScanning()).toBe(false);
+    const batch = runScanBatch(deps, 1); // synchronously takes the mutex, then blocks
+    expect(isScanning()).toBe(true);
+    release();
+    await batch;
+    expect(isScanning()).toBe(false);
   }, 30_000);
 
   it('flags a sizable all-zero-price batch as possible scraper breakage', async () => {

@@ -44,6 +44,11 @@ export interface ScanResult {
  *  check, run identical Explore searches (double-scraping Google), race the
  *  provider's browser launch, and race alert cooldowns into duplicate emails. */
 let batchInFlight = false;
+/** True while a scan batch is actively running — drives the "Checking prices…"
+ *  status in the UI (authoritative, unlike inferring it from the last call time). */
+export function isScanning(): boolean {
+  return batchInFlight;
+}
 /** A universe-change rescan requested while a batch was running — run it right
  *  after the current batch instead of dropping it on the mutex, so a scan that
  *  started under the OLD settings (e.g. 1 adult) can't leave the feed showing

@@ -28,6 +28,7 @@ import {
 import { getSettings, updateSettings } from '../db/settings.js';
 import {
   calendarRef,
+  isScanning,
   requestUniverseRescan,
   runDealVerification,
   runScanBatch,
@@ -223,6 +224,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       lastScanAt: lastApiCallAt(db, deps.provider.name),
       callsToday: calls,
       dailyCallBudget: settings.dailyCallBudget,
+      scanning: isScanning(),
       activeDeals: activeDealsWithPlace(
         db,
         deps.provider.name,

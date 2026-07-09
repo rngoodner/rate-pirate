@@ -268,9 +268,24 @@ export default function Settings() {
 
         {status && (
           <div className="rounded-2xl bg-white p-4 text-sm text-gray-600 shadow-sm">
-            <p className={`mb-1.5 ${CARD_TITLE}`}>Status</p>
+            <p className={`mb-1.5 flex items-center gap-1.5 ${CARD_TITLE}`}>
+              Status
+              {status.scanning && (
+                <span
+                  aria-label="checking prices now"
+                  className="inline-block h-2 w-2 animate-pulse rounded-full bg-brand"
+                />
+              )}
+            </p>
             <p>Provider: {status.provider}</p>
-            <p>Last scan: {status.lastScanAt ? timeAgo(status.lastScanAt) : 'never'}</p>
+            <p>
+              Last scan:{' '}
+              {status.scanning
+                ? 'checking prices now…'
+                : status.lastScanAt
+                  ? timeAgo(status.lastScanAt)
+                  : 'never'}
+            </p>
             <p>Next scan: {status.nextBatchAt ? timeUntil(status.nextBatchAt) : 'paused'}</p>
             <p>
               Calls today: {status.callsToday} / {status.dailyCallBudget}

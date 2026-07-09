@@ -15,9 +15,12 @@ function cabinSummary(settings: Settings | null): string {
 
 /** Freshness line under the title: when prices were last checked and when the
  *  next scan runs. Recomputed on every render (a 1s ticker drives it), so it
- *  counts down live. */
-function freshness(status: ScanStatus | null): string {
+ *  counts down live. `scanning` (a batch running now) takes precedence — while
+ *  it runs, lastScanAt keeps advancing to ~now, which would misread "Checked
+ *  now". */
+export function freshness(status: ScanStatus | null): string {
   if (!status) return '';
+  if (status.scanning) return 'Checking prices…';
   if (!status.nextBatchAt) return 'Scanning paused';
   const next = `next scan ${timeUntil(status.nextBatchAt)}`;
   return status.lastScanAt ? `Checked ${timeAgo(status.lastScanAt)} · ${next}` : next;
@@ -56,7 +59,14 @@ export default function DealsFeed() {
     <div>
       <header className="bg-brand-pale px-4 pb-4 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <h1 className="text-xl font-black tracking-tight">🏴‍☠️ Rate Pirate</h1>
-        {status && <p className="mt-0.5 text-xs text-gray-500">{freshness(status)}</p>}
+        {status && (
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500">
+            {status.scanning && (
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />
+            )}
+            {freshness(status)}
+          </p>
+        )}
         <Link
           to="/settings"
           className="mt-3 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-sm active:bg-gray-50"
