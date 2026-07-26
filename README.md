@@ -71,7 +71,8 @@ PROVIDER=google-flights
 ALERT_EMAIL_FROM=onboarding@resend.dev
 ALERT_EMAIL_TO=you@example.com
 
-# Easiest email option — a Resend API key (see "Email alerts" below).
+# Email delivery — this shows the quickest option (Resend). Proton Bridge and
+# other SMTP servers work too; see "Email alerts" below for both.
 RESEND_API_KEY=re_xxxxxxxxxxxxxxxx
 ```
 
@@ -171,17 +172,24 @@ seems off.
 
 ## Email alerts
 
-The app sends through whatever you configure, preferring **SMTP** if set, otherwise
-**Resend**, otherwise just logging to the console (useful while testing).
+Alerts go out through whatever you configure. The app picks a sender by precedence:
+**SMTP** (if `SMTP_HOST` is set) → **Resend** (if `RESEND_API_KEY` is set) → console
+log (for testing). Two options cover most people:
 
-**Resend (easiest).** Create a free account at [resend.com](https://resend.com) and
-make an API key. Put it in `.env` as `RESEND_API_KEY`, and restart. Without your own
-verified domain, Resend only delivers to *your own* account email and the From
-address must be `onboarding@resend.dev` — fine for a personal setup. To email other
-people (family, etc.), verify a domain in Resend or use Proton Bridge (Advanced).
+**Resend — fastest to try.** Create a free account at [resend.com](https://resend.com),
+make an API key, put it in `.env` as `RESEND_API_KEY`, and restart. Catch: on the
+free tier without a verified domain, Resend only delivers to *your own* account
+address, and the From must be `onboarding@resend.dev`. Fine for alerting yourself; to
+email anyone else, verify a domain in Resend — or use Proton Bridge.
 
-**SMTP.** If you already have an SMTP server, set `SMTP_HOST`, `SMTP_PORT`,
-`SMTP_USER`, `SMTP_PASS` in `.env` and restart. See `.env.example` for every field.
+**Proton Bridge — what the reference deployment runs.** With a paid Proton plan,
+running Proton Bridge on the server lets Rate Pirate send from your own `@proton.me`
+address to **any** recipient, with no domain setup. Bridge is an SMTP sender, so once
+configured it takes precedence over Resend. Full walkthrough:
+[Email via Proton Bridge](#email-via-proton-bridge-send-from-protonme-to-anyone).
+
+Any other SMTP server works too — set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and
+`SMTP_PASS` in `.env` (see `.env.example` for every field).
 
 After changing email settings, restart and send a test:
 
