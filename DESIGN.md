@@ -4,7 +4,7 @@ _Last updated: 2026-07-05_
 
 ## 1. Overview
 
-Rate Pirate is a single-user, mobile-first web app that monitors round-trip flight prices from a home airport (default **ABQ**, Albuquerque International Sunport) to destinations worldwide. When a price falls far below the historical norm for a route, it emails the user. The name and UI are a play on the RatePunk app; reference screenshots live in `ui-samples/`.
+Rate Pirate is a single-user, mobile-first web app that monitors round-trip flight prices from a home airport (default **ABQ**, Albuquerque International Sunport) to destinations worldwide. When a price falls far below the historical norm for a route, it emails the user. The name and UI are a play on the RatePunk app.
 
 **Explicit non-goal: booking.** The app finds deals and tells the user where to purchase — every alert email and date-option row carries a Google Flights deep link pre-filled with route and dates. The user books there. The flight-data provider is used purely as a price-monitoring source; its quotes are indicative, which is fine since we never sell or book.
 
