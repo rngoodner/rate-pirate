@@ -4,8 +4,10 @@ import {
   CABINS,
   TRIP_TYPES,
   googleFlightsUrl,
+  isAirlineHidden,
   isEmail,
   parseRecipients,
+  primaryAirline,
   type Deal,
   type DealDetail,
   type ScanStatus,
@@ -17,6 +19,7 @@ import {
   apiCallsToday,
   clearEvents,
   dealFlightDetails,
+  distinctRecentCarriers,
   errorsToday,
   getDealWithPlace,
   getPriceInsights,
@@ -63,6 +66,10 @@ const settingsPatchSchema = z
     alertCooldownDays: z.number().int().min(1).max(30),
     // Party-size total in cents; 0 = no cap. Up to $100k.
     alertMaxPriceCents: z.number().int().min(0).max(10_000_000),
+    // Airlines to hide (deny-list); empty = hide none. Deduped; names are short.
+    hiddenAirlines: z
+      .array(z.string().min(1).max(60))
+      .transform((a) => [...new Set(a.map((s) => s.trim()).filter(Boolean))]),
   })
   .partial()
   .strict();
@@ -73,6 +80,7 @@ const settingsPatchSchema = z
 function toWireDeal(d: DealWithPlace, settings: Settings): Deal {
   const { adults } = settings;
   const partyPrice = d.bestPriceCents * adults;
+  const airline = primaryAirline(d.carrier);
   return {
     id: d.id,
     origin: d.origin,
@@ -80,6 +88,7 @@ function toWireDeal(d: DealWithPlace, settings: Settings): Deal {
     city: d.city,
     country: d.country,
     cabin: d.cabin,
+    airline,
     tripType: d.tripType,
     travelMonth: d.travelMonth,
     bestPriceCents: partyPrice,
@@ -98,7 +107,8 @@ function toWireDeal(d: DealWithPlace, settings: Settings): Deal {
     alertEligible:
       d.score >= settings.alertThreshold &&
       d.discountPct >= settings.alertMinDiscount &&
-      (settings.alertMaxPriceCents === 0 || partyPrice <= settings.alertMaxPriceCents),
+      (settings.alertMaxPriceCents === 0 || partyPrice <= settings.alertMaxPriceCents) &&
+      !isAirlineHidden(airline, settings.hiddenAirlines),
     adults,
   };
 }
@@ -116,8 +126,24 @@ export function apiRoutes(deps: AppDeps): Hono {
       deps.provider.name,
       settings.monitoredCabins,
       settings.tripTypes,
-    ).map((d) => toWireDeal(d, settings));
+    )
+      .map((d) => toWireDeal(d, settings))
+      // Per-airline filter: drop deals whose primary carrier the user hid.
+      .filter((d) => !isAirlineHidden(d.airline, settings.hiddenAirlines));
     return c.json(deals);
+  });
+
+  // The airline checklist for Settings: primary carriers seen for the home
+  // airport recently, plus any currently-hidden airline (so a hidden one can
+  // always be re-enabled even if it hasn't appeared in a recent scan).
+  api.get('/airlines', (c) => {
+    const settings = getSettings(db, config);
+    const primaries = distinctRecentCarriers(db, deps.provider.name, settings.homeAirport, 30)
+      .map((carrier) => primaryAirline(carrier))
+      .filter((a): a is string => a !== null);
+    const all = [...new Set([...primaries, ...settings.hiddenAirlines])];
+    all.sort((a, b) => a.localeCompare(b));
+    return c.json(all);
   });
 
   api.get('/deals/:id', (c) => {

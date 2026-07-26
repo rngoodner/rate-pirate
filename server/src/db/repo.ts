@@ -162,13 +162,25 @@ export interface DealRow {
   firstSeenAt: string;
   lastSeenAt: string;
   status: 'active' | 'expired';
+  /** Carrier of the deal's cheapest current fare — the same snapshot the price
+   *  and dates come from (see the `carrier` subquery in dealCols). Null when no
+   *  snapshot or no carrier was captured. */
+  carrier: string | null;
 }
 
+// The correlated `carrier` subquery picks the exact fare this deal describes —
+// the cheapest itinerary from the most recent scan of the combo — matching
+// dealFlightDetails so the feed's airline and the detail page never disagree.
 const dealCols = `id, source, origin, destination, city, country, cabin,
   trip_type AS tripType, travel_month AS travelMonth,
   best_price_cents AS bestPriceCents, baseline_price_cents AS baselinePriceCents,
   discount_pct AS discountPct, score, depart_date AS departDate, return_date AS returnDate,
-  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status`;
+  first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, status,
+  (SELECT carrier FROM price_snapshots s
+    WHERE s.source = deals.source AND s.origin = deals.origin
+      AND s.destination = deals.destination AND s.cabin = deals.cabin
+      AND s.trip_type = deals.trip_type
+    ORDER BY s.captured_at DESC, s.price_cents ASC LIMIT 1) AS carrier`;
 
 export interface DealInput {
   source: string;
@@ -367,6 +379,26 @@ export function dealFlightDetails(
   if (!row) return null;
   const { layoversJson, ...rest } = row;
   return { ...rest, layovers: layoversJson ? (JSON.parse(layoversJson) as Layover[]) : [] };
+}
+
+/** Distinct non-null carrier strings seen for a route origin in the last
+ *  `sinceDays` days — the raw material for the airline filter's checklist. The
+ *  caller collapses these to primary airlines (see primaryAirline). */
+export function distinctRecentCarriers(
+  db: Db,
+  source: string,
+  origin: string,
+  sinceDays: number,
+): string[] {
+  return (
+    db
+      .prepare(
+        `SELECT DISTINCT carrier FROM price_snapshots
+         WHERE source = ? AND origin = ? AND carrier IS NOT NULL AND carrier != ''
+           AND captured_at >= datetime('now', '-' || ? || ' days')`,
+      )
+      .all(source, origin, sinceDays) as { carrier: string }[]
+  ).map((r) => r.carrier);
 }
 
 // --- Google price insights (baselines + sparkline) ---

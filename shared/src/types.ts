@@ -154,6 +154,27 @@ export function googleFlightsUrl(
   return `https://www.google.com/travel/flights?tfs=${base64url(info)}&hl=en&curr=USD`;
 }
 
+// --- Airlines ---
+// Google reports the carriers of an itinerary as a single string: one name for a
+// single-carrier trip ("United"), or a list for a multi-leg one ("United, SWISS
+// and Edelweiss Air"). The FIRST name is the marketing/ticketing carrier — the
+// airline you actually book with — so we collapse to it for display and for the
+// per-airline feed/email filter. This turns a 100+-value free-text field into a
+// short, stable set (the majors) that a checklist can present.
+
+/** The primary (first-listed marketing) airline of a carrier string, or null. */
+export function primaryAirline(carrier: string | null | undefined): string | null {
+  if (!carrier) return null;
+  const first = carrier.split(/,| and /)[0]?.trim();
+  return first ? first : null;
+}
+
+/** True when `airline` is in the user's hidden set (deny-list). A null airline
+ *  (carrier not captured) is never hidden — we don't hide what we can't name. */
+export function isAirlineHidden(airline: string | null, hiddenAirlines: string[]): boolean {
+  return airline !== null && hiddenAirlines.includes(airline);
+}
+
 export interface Deal {
   id: number;
   origin: string;
@@ -161,6 +182,10 @@ export interface Deal {
   city: string;
   country: string;
   cabin: Cabin;
+  /** Primary marketing airline of the deal's cheapest fare (see primaryAirline);
+   *  null when no carrier was captured. Drives the card's airline label and the
+   *  per-airline filter. */
+  airline: string | null;
   /** Trip shape this deal was discovered for (weekend / 1 week / 2 weeks). */
   tripType: TripType;
   /** Departure month bucket, 'YYYY-MM'. */
@@ -259,6 +284,10 @@ export interface Settings {
   /** Never email a deal whose party-size total (the price shown in the feed and
    *  email) exceeds this many cents. 0 = no cap. */
   alertMaxPriceCents: number;
+  /** Airlines to HIDE from the feed and email (deny-list of primary carriers,
+   *  see primaryAirline). Empty = show every airline (including any not seen
+   *  yet). A deal/alert is suppressed when its primary airline is in this set. */
+  hiddenAirlines: string[];
   /** Trip shapes to search on Explore (at least one): weekend / 1 week / 2 weeks.
    *  Each selected type × cabin is one Explore search over the next ~6 months. */
   tripTypes: TripType[];

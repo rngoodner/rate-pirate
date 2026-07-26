@@ -34,7 +34,15 @@ export function getSettings(db: Db, config: Config): Settings {
     alertMaxPriceCents: intOr(stored.get('alert_max_price_cents'), 0),
     tripTypes: parseTripTypes(stored.get('trip_types')),
     adults: intOr(stored.get('adults'), 1),
+    hiddenAirlines: parseAirlines(stored.get('hidden_airlines')),
   };
+}
+
+/** Parse the stored comma-separated hidden-airline list. Empty/unset → [] (hide
+ *  nothing). Airline names never contain commas, so a plain split is safe. */
+function parseAirlines(csv: string | undefined): string[] {
+  if (!csv) return [];
+  return [...new Set(csv.split(',').map((s) => s.trim()).filter(Boolean))];
 }
 
 /** Parse the stored CSV; fall back to the default if empty/invalid. Order
@@ -73,6 +81,11 @@ export function updateSettings(db: Db, patch: Partial<Settings>): void {
       ? TRIP_TYPES.filter((t) => patch.tripTypes!.includes(t)).join(',')
       : undefined,
     adults: patch.adults?.toString(),
+    // An empty array is a real value (hide nothing), so store '' rather than
+    // skip it — the caller must be able to clear the deny-list.
+    hidden_airlines: patch.hiddenAirlines
+      ? [...new Set(patch.hiddenAirlines.map((a) => a.trim()).filter(Boolean))].join(',')
+      : undefined,
   };
   const upsert = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',

@@ -91,6 +91,44 @@ describe('API routes', () => {
     expect(find(deals, 'NAP').alertEligible).toBe(false);
   });
 
+  it('exposes each deal’s primary airline and filters the feed + /airlines by the hidden set', async () => {
+    const { app, db } = makeApp();
+    seedDeal(db, 'NAP', 90);
+    seedDeal(db, 'CUN', 88);
+    const snap = (destination: string, carrier: string) =>
+      insertSnapshot(db, {
+        source: 'mock', origin: 'ABQ', destination, city: '', country: '',
+        cabin: 'economy', tripType: 'one_week', travelMonth: '2099-08',
+        departDate: '2099-08-18', returnDate: '2099-08-26',
+        priceCents: 65000, stops: 1, carrier,
+      });
+    snap('NAP', 'United and Lufthansa'); // primary = United
+    snap('CUN', 'Delta');
+
+    // Each deal carries its cheapest fare's primary (marketing) airline.
+    let deals = (await (await app.request('/api/deals')).json()) as Deal[];
+    expect(Object.fromEntries(deals.map((d) => [d.destination, d.airline]))).toEqual({
+      NAP: 'United',
+      CUN: 'Delta',
+    });
+
+    // The checklist offers the distinct primary carriers, sorted.
+    expect(await (await app.request('/api/airlines')).json()).toEqual(['Delta', 'United']);
+
+    // Hiding United drops NAP from the feed but keeps CUN…
+    await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hiddenAirlines: ['United'] }),
+    });
+    deals = (await (await app.request('/api/deals')).json()) as Deal[];
+    expect(deals.map((d) => d.destination)).toEqual(['CUN']);
+    expect(deals[0]!.alertEligible).toBe(true);
+
+    // …and a hidden airline stays offered so it can be re-enabled later.
+    expect(await (await app.request('/api/airlines')).json()).toContain('United');
+  });
+
   it('GET /api/deals/:id returns the single fare with flight detail and a booking link', async () => {
     const { app, db } = makeApp();
     const deal = seedDeal(db, 'NAP', 92);

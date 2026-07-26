@@ -1,4 +1,10 @@
-import { CABIN_LABELS, parseRecipients, type Settings } from '@rate-pirate/shared';
+import {
+  CABIN_LABELS,
+  isAirlineHidden,
+  parseRecipients,
+  primaryAirline,
+  type Settings,
+} from '@rate-pirate/shared';
 import type { Db } from '../db/db.js';
 import { lastAlertForDeal, logEvent, recordAlert, type DealRow } from '../db/repo.js';
 import type { EmailSender } from './email.js';
@@ -13,6 +19,7 @@ export type SkipReason =
   | 'below_threshold'
   | 'below_min_discount'
   | 'above_max_price'
+  | 'airline_hidden'
   | 'no_recipient'
   | 'cooldown'
   | 'send_failed';
@@ -40,6 +47,9 @@ export async function maybeAlert(
     deal.bestPriceCents * settings.adults > settings.alertMaxPriceCents
   )
     return { sent: false, reason: 'above_max_price' };
+  // Respect the per-airline filter: never email a deal on a hidden carrier.
+  if (isAirlineHidden(primaryAirline(deal.carrier), settings.hiddenAirlines))
+    return { sent: false, reason: 'airline_hidden' };
   const recipients = parseRecipients(settings.alertEmail);
   if (recipients.length === 0) return { sent: false, reason: 'no_recipient' };
 

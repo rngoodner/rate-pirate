@@ -22,6 +22,7 @@ describe('settings', () => {
       alertMaxPriceCents: 0,
       tripTypes: ['one_week'],
       adults: 1,
+      hiddenAirlines: [],
     });
   });
 
@@ -50,6 +51,7 @@ describe('settings', () => {
       alertMaxPriceCents: 150_000,
       tripTypes: ['weekend', 'two_weeks'],
       adults: 3,
+      hiddenAirlines: ['Spirit', 'Frontier'],
     });
     const s = getSettings(db, config);
     expect(s.alertMinDiscount).toBe(0.15);
@@ -58,6 +60,15 @@ describe('settings', () => {
     expect(s.alertMaxPriceCents).toBe(150_000);
     expect(s.tripTypes).toEqual(['weekend', 'two_weeks']);
     expect(s.adults).toBe(3);
+    expect(s.hiddenAirlines).toEqual(['Spirit', 'Frontier']);
+  });
+
+  it('hidden airlines can be cleared back to empty', () => {
+    const db = openDb(':memory:');
+    updateSettings(db, { hiddenAirlines: ['Spirit'] });
+    expect(getSettings(db, config).hiddenAirlines).toEqual(['Spirit']);
+    updateSettings(db, { hiddenAirlines: [] });
+    expect(getSettings(db, config).hiddenAirlines).toEqual([]);
   });
 
   it('partial update leaves other keys alone', () => {

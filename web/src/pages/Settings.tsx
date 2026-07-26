@@ -23,6 +23,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [status, setStatus] = useState<ScanStatus | null>(null);
   const [events, setEvents] = useState<AppEvent[]>([]);
+  const [airlines, setAirlines] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadStatus = useCallback(() => {
@@ -31,6 +32,7 @@ export default function Settings() {
   }, []);
   useEffect(() => {
     api.settings().then(setSettings).catch(() => {});
+    api.airlines().then(setAirlines).catch(() => {});
     loadStatus();
   }, [loadStatus]);
   // Keep the status panel live (scan progress), but never re-pull settings on a
@@ -95,7 +97,31 @@ export default function Settings() {
     save({ tripTypes: next });
   }
 
+  // Deny-list semantics: a deal shows/emails when its airline is NOT hidden.
+  // So a chip is "on" (shown) when the airline is absent from hiddenAirlines.
+  function toggleAirline(airline: string) {
+    if (!settings) return;
+    const hidden = settings.hiddenAirlines.includes(airline)
+      ? settings.hiddenAirlines.filter((a) => a !== airline) // was hidden → show
+      : [...settings.hiddenAirlines, airline]; // was shown → hide
+    setSettings({ ...settings, hiddenAirlines: hidden });
+    save({ hiddenAirlines: hidden });
+  }
+
+  function setAllAirlines(hidden: string[]) {
+    if (!settings) return;
+    setSettings({ ...settings, hiddenAirlines: hidden });
+    save({ hiddenAirlines: hidden });
+  }
+
   if (!settings) return <p className="mt-12 text-center text-gray-400">Loading…</p>;
+
+  // Every airline to offer as a chip: those seen recently plus any still hidden
+  // (so a hidden one is always re-selectable), shown checked when not hidden.
+  const airlineOptions = [...new Set([...airlines, ...settings.hiddenAirlines])].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const shownCount = airlineOptions.filter((a) => !settings.hiddenAirlines.includes(a)).length;
 
   return (
     <div>
@@ -183,6 +209,58 @@ export default function Settings() {
             Each cabin is scanned separately, so monitoring more cabins means each one refreshes
             less often. At least one is required.
           </p>
+        </Field>
+
+        <Field label="Airlines">
+          {airlineOptions.length === 0 ? (
+            <p className={CARD_DESC}>
+              No airlines seen yet — they’ll appear here after the next scan.
+            </p>
+          ) : (
+            <>
+              <div className="mb-3 flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-600 active:bg-gray-100"
+                  onClick={() => setAllAirlines([])}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-600 active:bg-gray-100"
+                  onClick={() => setAllAirlines(airlineOptions)}
+                >
+                  Clear all
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {airlineOptions.map((airline) => {
+                  const selected = !settings.hiddenAirlines.includes(airline);
+                  return (
+                    <button
+                      key={airline}
+                      type="button"
+                      aria-pressed={selected}
+                      className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${
+                        selected
+                          ? 'border-brand bg-brand-pale text-brand'
+                          : 'border-gray-300 bg-white text-gray-400'
+                      }`}
+                      onClick={() => toggleAirline(airline)}
+                    >
+                      {airline}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className={`mt-2 ${CARD_DESC}`}>
+                Only checked airlines appear in the feed and can trigger emails. Showing{' '}
+                {shownCount} of {airlineOptions.length}. Filters what’s displayed — it doesn’t
+                change what’s scanned.
+              </p>
+            </>
+          )}
         </Field>
 
         <Field label="Alert recipients">

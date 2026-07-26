@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/db.js';
 import { maybeAlert } from '../alerts/notify.js';
 import type { EmailMessage, EmailSender } from '../alerts/email.js';
-import { recentEvents, upsertDeal, type DealRow } from '../db/repo.js';
+import { insertSnapshot, recentEvents, upsertDeal, type DealRow } from '../db/repo.js';
 import type { Settings } from '@rate-pirate/shared';
 
 const settings: Settings = {
@@ -18,6 +18,7 @@ const settings: Settings = {
   alertMaxPriceCents: 0,
   tripTypes: ['one_week'],
   adults: 1,
+  hiddenAirlines: [],
 };
 
 function fakeSender() {
@@ -102,6 +103,51 @@ describe('maybeAlert', () => {
     );
     const roomy = { ...settings, adults: 2, alertMaxPriceCents: 1500_00 };
     expect((await maybeAlert(db, makeDeal(db), roomy, sender, '2026-06-20 09:00:00')).sent).toBe(true);
+  });
+
+  it('skips a deal whose primary airline the user hid', async () => {
+    // Give the combo a fare with a carrier so the deal picks up an airline; the
+    // primary of "Delta and KLM" is "Delta".
+    const seedCarrier = (db: ReturnType<typeof openDb>, carrier: string) =>
+      insertSnapshot(db, {
+        source: 'mock',
+        origin: 'ABQ',
+        destination: 'NAP',
+        city: '',
+        country: '',
+        cabin: 'economy',
+        tripType: 'one_week',
+        travelMonth: '2026-08',
+        departDate: '2026-08-18',
+        returnDate: '2026-08-26',
+        priceCents: 65000,
+        stops: 1,
+        carrier,
+        capturedAt: '2026-06-20 08:00:00',
+      });
+
+    const hidden = openDb(':memory:');
+    seedCarrier(hidden, 'Delta and KLM');
+    const blocked = await maybeAlert(
+      hidden,
+      makeDeal(hidden),
+      { ...settings, hiddenAirlines: ['Delta'] },
+      fakeSender().sender,
+      '2026-06-20 08:00:00',
+    );
+    expect(blocked).toEqual({ sent: false, reason: 'airline_hidden' });
+
+    // Hiding a different airline leaves this Delta deal alone.
+    const allowed = openDb(':memory:');
+    seedCarrier(allowed, 'Delta and KLM');
+    const sent = await maybeAlert(
+      allowed,
+      makeDeal(allowed),
+      { ...settings, hiddenAirlines: ['United'] },
+      fakeSender().sender,
+      '2026-06-20 08:00:00',
+    );
+    expect(sent.sent).toBe(true);
   });
 
   it('sends to every recipient when alertEmail lists several', async () => {

@@ -17,6 +17,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   deals: () => request<Deal[]>('/api/deals'),
   deal: (id: number | string) => request<DealDetail>(`/api/deals/${id}`),
+  /** Primary airlines seen recently, for the Settings filter checklist. */
+  airlines: () => request<string[]>('/api/airlines'),
   settings: () => request<Settings>('/api/settings'),
   updateSettings: (patch: Partial<Settings>) =>
     request<Settings>('/api/settings', {

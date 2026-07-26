@@ -6,6 +6,7 @@ import ScoreBadge from './ScoreBadge';
 import PriceTag from './PriceTag';
 import CabinBadge from './CabinBadge';
 import PartyBadge from './PartyBadge';
+import AirlineLabel from './AirlineLabel';
 
 export default function DealCard({ deal }: { deal: Deal }) {
   return (
@@ -33,6 +34,11 @@ export default function DealCard({ deal }: { deal: Deal }) {
       <p className="text-sm text-gray-500">
         {deal.country} • {TRIP_TYPE_LABELS[deal.tripType]} • {monthLabel(deal.travelMonth)}
       </p>
+      {deal.airline && (
+        <div className="mt-1">
+          <AirlineLabel airline={deal.airline} />
+        </div>
+      )}
       <div className="mt-3 flex items-end justify-between">
         <ScoreBadge score={deal.score} />
         <span className="flex items-center gap-1">
