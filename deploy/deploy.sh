@@ -9,6 +9,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Load git-ignored local overrides if present, so you don't have to pass the
+# real host/path every time. Copy deploy/deploy.local.example → deploy/deploy.local
+# and set HOST/DEST there (deploy.local is gitignored — real infra stays out of git).
+# A HOST=… on the command line still wins over the file.
+[ -f deploy/deploy.local ] && . deploy/deploy.local
+
 HOST=${HOST:-your-server.local}
 DEST=${DEST:-/opt/rate-pirate}
 

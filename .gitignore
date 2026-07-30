@@ -10,3 +10,4 @@ data/
 !.env.example
 .DS_Store
 ui-samples/
+deploy/deploy.local

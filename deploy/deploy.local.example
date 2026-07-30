@@ -1,0 +1,5 @@
+# Local deploy overrides for deploy.sh — real host/path, kept out of git.
+# Copy this file to deploy/deploy.local (which is gitignored) and edit the values.
+# Using ${VAR:-…} so a HOST=… / DEST=… on the command line still overrides these.
+HOST="${HOST:-your-server.local}"
+DEST="${DEST:-/opt/rate-pirate}"
