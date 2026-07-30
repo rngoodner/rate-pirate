@@ -150,6 +150,21 @@ describe('maybeAlert', () => {
     expect(sent.sent).toBe(true);
   });
 
+  it('names the primary airline in the subject and body', async () => {
+    const db = openDb(':memory:');
+    insertSnapshot(db, {
+      source: 'mock', origin: 'ABQ', destination: 'NAP', city: 'Naples', country: 'Italy',
+      cabin: 'economy', tripType: 'one_week', travelMonth: '2026-08',
+      departDate: '2026-08-18', returnDate: '2026-08-26',
+      priceCents: 65000, stops: 1, carrier: 'Delta and KLM',
+      capturedAt: '2026-06-20 08:00:00',
+    });
+    const { sender, sent } = fakeSender();
+    await maybeAlert(db, makeDeal(db, { city: 'Naples', country: 'Italy' }), settings, sender, '2026-06-20 08:00:00');
+    expect(sent[0]!.subject).toContain('on Delta'); // primary carrier of "Delta and KLM"
+    expect(sent[0]!.html).toContain('Delta');
+  });
+
   it('sends to every recipient when alertEmail lists several', async () => {
     const db = openDb(':memory:');
     const { sender, sent } = fakeSender();

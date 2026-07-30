@@ -71,6 +71,7 @@ export async function maybeAlert(
     cabin: deal.cabin,
     tripType: deal.tripType,
     adults: settings.adults,
+    airline: primaryAirline(deal.carrier),
     travelMonth: deal.travelMonth,
     priceCents: deal.bestPriceCents * settings.adults,
     baselineCents: deal.baselinePriceCents * settings.adults,

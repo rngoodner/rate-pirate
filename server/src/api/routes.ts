@@ -321,6 +321,7 @@ export function apiRoutes(deps: AppDeps): Hono {
       cabin: settings.monitoredCabins[0] ?? 'economy',
       tripType: settings.tripTypes[0] ?? 'one_week',
       adults: settings.adults,
+      airline: 'United',
       travelMonth: '2026-08',
       priceCents: 75800,
       baselineCents: 112300,
